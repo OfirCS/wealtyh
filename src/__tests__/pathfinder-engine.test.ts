@@ -186,13 +186,16 @@ describe('searchForContext (live Google Search)', () => {
     ai = new GoogleGenAI({ apiKey });
   });
 
-  it('returns real data for mortgage rate query', async () => {
-    const context = await searchForContext(ai, [
+  it('returns real data and sources for mortgage rate query', async () => {
+    const { text, metadata } = await searchForContext(ai, [
       'current 5-year fixed mortgage rate Canada 2026',
     ]);
-    expect(context.length).toBeGreaterThan(50);
+    expect(text.length).toBeGreaterThan(50);
     // Should contain actual rate numbers
-    expect(context).toMatch(/\d+\.?\d*%/);
+    expect(text).toMatch(/\d+\.?\d*%/);
+    // Should return source URLs
+    expect(metadata.sources.length).toBeGreaterThan(0);
+    expect(metadata.queries.length).toBeGreaterThan(0);
   });
 });
 
@@ -270,7 +273,7 @@ describe('runPathfinder (full pipeline)', () => {
   });
 
   it('runs full pipeline for simple scenario (no search)', async () => {
-    const result = await runPathfinder(
+    const { result, searchMetadata } = await runPathfinder(
       PROFILE_A,
       'I want to pay off my debt faster',
     );
@@ -279,13 +282,16 @@ describe('runPathfinder (full pipeline)', () => {
     expect(result.quick_actions.length).toBeGreaterThanOrEqual(3);
     expect(result.monthly_cashflow.length).toBeGreaterThanOrEqual(2);
 
+    // Simple scenario should not have search metadata
+    expect(searchMetadata).toBeNull();
+
     // Should reference the $400 debt payments from the profile
     const allText = JSON.stringify(result);
     expect(allText).toMatch(/400|debt/i);
   });
 
   it('runs full pipeline for complex scenario (with search)', async () => {
-    const result = await runPathfinder(
+    const { result, searchMetadata } = await runPathfinder(
       PROFILE_B,
       'I want to buy a house in Vancouver for around $900K',
     );
@@ -293,6 +299,11 @@ describe('runPathfinder (full pipeline)', () => {
     expect(result.thinking_steps.length).toBeGreaterThanOrEqual(3);
     expect(result.quick_actions.length).toBeGreaterThanOrEqual(3);
     expect(result.advisor_flags.length).toBeGreaterThanOrEqual(1);
+
+    // Complex scenario should have search metadata with sources
+    expect(searchMetadata).not.toBeNull();
+    expect(searchMetadata!.queries.length).toBeGreaterThan(0);
+    expect(searchMetadata!.sources.length).toBeGreaterThan(0);
 
     // Should use profile B's data
     const allText = JSON.stringify(result);

@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { SUGGESTION_CHIPS } from "@/lib/defaults";
-import type { FinancialProfile } from "@/lib/types";
+import type { FinancialProfile, CustomFund } from "@/lib/types";
 import PromptInput from "@/components/prompt/PromptInput";
 import CurrencyInput from "@/components/ui/CurrencyInput";
 import RangeSlider from "@/components/ui/RangeSlider";
@@ -11,6 +11,7 @@ import SelectInput from "@/components/ui/SelectInput";
 
 interface HomeScreenProps {
   profile: FinancialProfile;
+  customFunds: CustomFund[];
   onProfileChange: (profile: FinancialProfile) => void;
   onSubmit: (event: string) => void;
 }
@@ -31,10 +32,6 @@ const PROVINCE_OPTIONS = [
   { value: "YT", label: "Yukon" },
 ];
 
-const PROVINCE_LABELS: Record<string, string> = Object.fromEntries(
-  PROVINCE_OPTIONS.map((o) => [o.value, o.label])
-);
-
 const EMPLOYMENT_OPTIONS = [
   { value: "employed", label: "Employed" },
   { value: "self_employed", label: "Self-employed" },
@@ -54,55 +51,23 @@ function formatCurrency(value: number): string {
   return `$${value}`;
 }
 
-function SnapshotRow({
-  label,
-  value,
-  isSeparator,
-}: {
-  label?: string;
-  value?: string;
-  isSeparator?: boolean;
-}) {
-  if (isSeparator) {
-    return (
-      <div
-        className="my-1.5"
-        style={{ borderTop: "1px solid var(--ws-border)" }}
-      />
-    );
-  }
-  return (
-    <div className="flex items-baseline justify-between py-[3px]">
-      <span className="text-[14px] text-[var(--ws-text-secondary)]">
-        {label}
-      </span>
-      <span className="text-[14px] font-medium text-[var(--ws-text-primary)] tabular-nums">
-        {value}
-      </span>
-    </div>
-  );
-}
-
 export default function HomeScreen({
   profile,
+  customFunds,
   onProfileChange,
   onSubmit,
 }: HomeScreenProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState<FinancialProfile>(profile);
   const [tfsaExpanded, setTfsaExpanded] = useState(false);
+  const [editSection, setEditSection] = useState<"income" | "accounts" | "expenses">("income");
 
   const p = profile;
-  const savings = p.chequingBalance + p.savingsBalance;
-  const monthlyOut =
-    p.housingExpense +
-    p.essentialExpenses +
-    p.discretionarySpending +
-    p.debtPayments;
 
   const startEdit = useCallback(() => {
     setDraft(profile);
     setIsEditing(true);
+    setEditSection("income");
   }, [profile]);
 
   const saveEdit = useCallback(() => {
@@ -178,7 +143,7 @@ export default function HomeScreen({
             {/* USD Savings Card */}
             <div className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex items-end justify-between cursor-pointer">
               <div className="flex flex-col gap-1">
-                <span className="text-[18px]" role="img" aria-label="US Flag">🇺🇸</span>
+                <span className="text-[18px]" role="img" aria-label="US Flag">{"\uD83C\uDDFA\uD83C\uDDF8"}</span>
                 <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">USD savings</span>
               </div>
               <span className="text-[17px] font-bold text-[var(--ws-text-primary)] pb-0.5">{formatCurrency(p.savingsBalance)} USD</span>
@@ -219,7 +184,7 @@ export default function HomeScreen({
                     <div className="flex flex-col gap-4 mt-2">
                       <div className="flex items-center justify-between">
                         <div className="flex flex-col">
-                          <span className="text-[20px] mb-1">✈️</span>
+                          <span className="text-[20px] mb-1">{"\u2708\uFE0F"}</span>
                           <div className="flex items-center gap-1.5">
                             <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">TFSA</span>
                             <span className="px-1.5 py-0.5 bg-[var(--ws-bg-primary)] rounded font-semibold text-[11px] text-[var(--ws-text-primary)] tracking-wide">Managed</span>
@@ -233,7 +198,7 @@ export default function HomeScreen({
 
                       <div className="flex items-center justify-between">
                         <div className="flex flex-col">
-                          <span className="text-[20px] mb-1">🏦</span>
+                          <span className="text-[20px] mb-1">{"\uD83C\uDFE6"}</span>
                           <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">TFSA</span>
                         </div>
                         <div className="flex flex-col items-end">
@@ -244,7 +209,7 @@ export default function HomeScreen({
 
                       <div className="flex items-center justify-between">
                         <div className="flex flex-col">
-                          <span className="text-[20px] mb-1">👶🏼</span>
+                          <span className="text-[20px] mb-1">{"\uD83D\uDC76\uD83C\uDFFB"}</span>
                           <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">TFSA</span>
                         </div>
                         <div className="flex flex-col items-end">
@@ -261,7 +226,7 @@ export default function HomeScreen({
             {/* FHSA */}
             <div className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex items-end justify-between cursor-pointer">
               <div className="flex flex-col gap-1">
-                <span className="text-[20px]">🏠</span>
+                <span className="text-[20px]">{"\uD83C\uDFE0"}</span>
                 <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">FHSA</span>
               </div>
               <div className="flex flex-col items-end">
@@ -273,7 +238,7 @@ export default function HomeScreen({
             {/* RRSP */}
             <div className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex items-end justify-between cursor-pointer">
               <div className="flex flex-col gap-1">
-                <span className="text-[20px]">⛔️</span>
+                <span className="text-[20px]">{"\u26D4\uFE0F"}</span>
                 <div className="flex items-center gap-1.5">
                   <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">RRSP</span>
                   <span className="px-1.5 py-0.5 bg-[var(--ws-bg-primary)] rounded font-semibold text-[11px] text-[var(--ws-text-primary)] tracking-wide">Managed</span>
@@ -284,181 +249,257 @@ export default function HomeScreen({
                 <span className="text-[13px] font-bold text-[#148749] tracking-tight">+26.15% all time</span>
               </div>
             </div>
+
+            {/* Custom Funds (created via confirmed actions) */}
+            {customFunds.map((fund, i) => (
+              <motion.div
+                key={fund.name + i}
+                className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex items-end justify-between cursor-pointer"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: 0.05 * i, ease: "easeOut" as const }}
+              >
+                <div className="flex flex-col gap-1">
+                  <span className="text-[20px]">{fund.emoji || "\u{1F4B0}"}</span>
+                  <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">{fund.name}</span>
+                </div>
+                <span className="text-[16px] font-bold text-[var(--ws-text-primary)] pb-0.5">{formatCurrency(fund.balance)}</span>
+              </motion.div>
+            ))}
           </motion.div>
         ) : (
+          /* ── EDIT MODE ── */
           <motion.div
             key="edit"
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.3, ease: "easeOut" }}
-            className="rounded-[var(--ws-radius-lg)] p-5 mb-3 bg-[var(--ws-bg-surface)] border border-[var(--ws-border)] shadow-sm"
+            className="flex flex-col gap-4"
           >
-            <div className="flex justify-between items-center mb-4">
-              <p className="text-[13px] font-semibold text-[var(--ws-text-tertiary)] uppercase tracking-[0.04em]">
-                Edit Your Profile
-              </p>
-              <div className="flex gap-2">
+            {/* Edit header */}
+            <div className="flex justify-between items-center px-1">
+              <h2 className="text-[22px] font-bold tracking-tight text-[var(--ws-text-primary)]">
+                Edit Snapshot
+              </h2>
+              <div className="flex gap-3">
                 <button
                   type="button"
                   onClick={cancelEdit}
-                  className="text-[12px] text-[var(--ws-text-tertiary)] hover:text-[var(--ws-text-secondary)] transition-colors cursor-pointer"
+                  className="text-[13px] text-[var(--ws-text-tertiary)] hover:text-[var(--ws-text-secondary)] transition-colors cursor-pointer bg-transparent border-none"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={saveEdit}
-                  className="text-[12px] font-semibold text-[var(--ws-text-primary)] hover:opacity-80 transition-opacity cursor-pointer"
+                  className="text-[13px] font-bold text-[var(--ws-text-primary)] cursor-pointer bg-transparent border-none hover:opacity-80 transition-opacity"
                 >
                   Save
                 </button>
               </div>
             </div>
 
-            {/* Income */}
-            <p className="text-[11px] font-semibold text-[var(--ws-text-tertiary)] uppercase tracking-wider mb-2">
-              Income
-            </p>
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <CurrencyInput
-                label="Annual Income"
-                value={draft.annualIncome}
-                onChange={(v) => updateField("annualIncome", v)}
-              />
-              <CurrencyInput
-                label="Partner Income"
-                value={draft.partnerIncome}
-                onChange={(v) => updateField("partnerIncome", v)}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <SelectInput
-                label="Employment"
-                value={draft.employmentType}
-                onChange={(v) => updateField("employmentType", v as FinancialProfile["employmentType"])}
-                options={EMPLOYMENT_OPTIONS}
-              />
-              <SelectInput
-                label="Province"
-                value={draft.province}
-                onChange={(v) => updateField("province", v)}
-                options={PROVINCE_OPTIONS}
-              />
+            {/* Section tabs */}
+            <div className="flex bg-[#E8E4DD] p-[3px] rounded-full">
+              {(["income", "accounts", "expenses"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setEditSection(tab)}
+                  className={`flex-1 text-[12px] font-bold py-1.5 rounded-full capitalize transition-all duration-200 ${
+                    editSection === tab
+                      ? "text-[var(--ws-text-primary)] shadow-sm bg-[var(--ws-bg-surface)]"
+                      : "text-[#88837E] hover:text-[var(--ws-text-primary)]"
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
             </div>
 
-            <div className="my-3" style={{ borderTop: "1px solid var(--ws-border)" }} />
-
-            {/* Accounts */}
-            <p className="text-[11px] font-semibold text-[var(--ws-text-tertiary)] uppercase tracking-wider mb-2">
-              Accounts (Drag to Demo)
-            </p>
-            <div className="flex flex-col gap-3 mb-4">
-              <RangeSlider
-                label="Chequing"
-                value={draft.chequingBalance}
-                min={0}
-                max={150000}
-                step={500}
-                onChange={(v) => updateField("chequingBalance", v)}
-                formatValue={formatCurrency}
-              />
-              <RangeSlider
-                label="USD Savings"
-                value={draft.savingsBalance}
-                min={0}
-                max={150000}
-                step={500}
-                onChange={(v) => updateField("savingsBalance", v)}
-                formatValue={(v) => formatCurrency(v) + " USD"}
-              />
-              <RangeSlider
-                label="TFSA Balance"
-                value={draft.tfsaBalance}
-                min={0}
-                max={200000}
-                step={1000}
-                onChange={(v) => updateField("tfsaBalance", v)}
-                formatValue={formatCurrency}
-              />
-              <RangeSlider
-                label="FHSA"
-                value={draft.fhsaBalance || 0}
-                min={0}
-                max={60000}
-                step={500}
-                onChange={(v) => updateField("fhsaBalance", v)}
-                formatValue={formatCurrency}
-              />
-              <RangeSlider
-                label="RRSP Balance"
-                value={draft.rrspBalance}
-                min={0}
-                max={200000}
-                step={1000}
-                onChange={(v) => updateField("rrspBalance", v)}
-                formatValue={formatCurrency}
-              />
-              <div className="grid grid-cols-2 gap-3 mt-2">
-                <CurrencyInput
-                  label="TFSA Room"
-                  value={draft.tfsaRoom}
-                  onChange={(v) => updateField("tfsaRoom", v)}
-                />
-                <CurrencyInput
-                  label="RRSP Room"
-                  value={draft.rrspRoom}
-                  onChange={(v) => updateField("rrspRoom", v)}
-                />
-                <CurrencyInput
-                  label="Non-Registered"
-                  value={draft.nonRegBalance}
-                  onChange={(v) => updateField("nonRegBalance", v)}
-                />
-              </div>
-            </div>
-
-            <div className="my-3" style={{ borderTop: "1px solid var(--ws-border)" }} />
-
-            {/* Housing & Expenses */}
-            <p className="text-[11px] font-semibold text-[var(--ws-text-tertiary)] uppercase tracking-wider mb-2">
-              Housing & Expenses
-            </p>
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <SelectInput
-                label="Housing"
-                value={draft.housingType}
-                onChange={(v) => updateField("housingType", v as "rent" | "own")}
-                options={HOUSING_OPTIONS}
-              />
-              <CurrencyInput
-                label="Housing Cost/mo"
-                value={draft.housingExpense}
-                onChange={(v) => updateField("housingExpense", v)}
-              />
-              <CurrencyInput
-                label="Essentials/mo"
-                value={draft.essentialExpenses}
-                onChange={(v) => updateField("essentialExpenses", v)}
-              />
-              <CurrencyInput
-                label="Discretionary/mo"
-                value={draft.discretionarySpending}
-                onChange={(v) => updateField("discretionarySpending", v)}
-              />
-              <CurrencyInput
-                label="Debt Payments/mo"
-                value={draft.debtPayments}
-                onChange={(v) => updateField("debtPayments", v)}
-              />
-              {draft.housingType === "own" && (
-                <CurrencyInput
-                  label="Mortgage Balance"
-                  value={draft.mortgageBalance}
-                  onChange={(v) => updateField("mortgageBalance", v)}
-                />
+            <AnimatePresence mode="wait">
+              {editSection === "income" && (
+                <motion.div
+                  key="income"
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 8 }}
+                  transition={{ duration: 0.15 }}
+                  className="bg-[var(--ws-bg-surface)] rounded-[20px] border border-[var(--ws-border)] p-5 shadow-sm"
+                >
+                  <p className="text-[11px] font-semibold text-[var(--ws-text-tertiary)] uppercase tracking-wider mb-4">
+                    Income & Employment
+                  </p>
+                  <div className="flex flex-col gap-4">
+                    <CurrencyInput
+                      label="Your annual income"
+                      value={draft.annualIncome}
+                      onChange={(v) => updateField("annualIncome", v)}
+                    />
+                    <CurrencyInput
+                      label="Partner annual income"
+                      value={draft.partnerIncome}
+                      onChange={(v) => updateField("partnerIncome", v)}
+                    />
+                    <SelectInput
+                      label="Employment type"
+                      value={draft.employmentType}
+                      onChange={(v) => updateField("employmentType", v as FinancialProfile["employmentType"])}
+                      options={EMPLOYMENT_OPTIONS}
+                    />
+                    <SelectInput
+                      label="Province"
+                      value={draft.province}
+                      onChange={(v) => updateField("province", v)}
+                      options={PROVINCE_OPTIONS}
+                    />
+                  </div>
+                  <p className="text-[12px] text-[var(--ws-text-tertiary)] mt-4 leading-relaxed">
+                    Used to calculate tax brackets, benefits, and provincial rules.
+                  </p>
+                </motion.div>
               )}
-            </div>
+
+              {editSection === "accounts" && (
+                <motion.div
+                  key="accounts"
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 8 }}
+                  transition={{ duration: 0.15 }}
+                  className="bg-[var(--ws-bg-surface)] rounded-[20px] border border-[var(--ws-border)] p-5 shadow-sm"
+                >
+                  <p className="text-[11px] font-semibold text-[var(--ws-text-tertiary)] uppercase tracking-wider mb-4">
+                    Drag sliders to match your balances
+                  </p>
+                  <div className="flex flex-col gap-4">
+                    <RangeSlider
+                      label="Chequing"
+                      value={draft.chequingBalance}
+                      min={0} max={150000} step={500}
+                      onChange={(v) => updateField("chequingBalance", v)}
+                      formatValue={formatCurrency}
+                    />
+                    <RangeSlider
+                      label="Savings (USD)"
+                      value={draft.savingsBalance}
+                      min={0} max={150000} step={500}
+                      onChange={(v) => updateField("savingsBalance", v)}
+                      formatValue={(v) => formatCurrency(v) + " USD"}
+                    />
+                    <RangeSlider
+                      label="TFSA"
+                      value={draft.tfsaBalance}
+                      min={0} max={200000} step={1000}
+                      onChange={(v) => updateField("tfsaBalance", v)}
+                      formatValue={formatCurrency}
+                    />
+                    <RangeSlider
+                      label="FHSA"
+                      value={draft.fhsaBalance || 0}
+                      min={0} max={60000} step={500}
+                      onChange={(v) => updateField("fhsaBalance", v)}
+                      formatValue={formatCurrency}
+                    />
+                    <RangeSlider
+                      label="RRSP"
+                      value={draft.rrspBalance}
+                      min={0} max={200000} step={1000}
+                      onChange={(v) => updateField("rrspBalance", v)}
+                      formatValue={formatCurrency}
+                    />
+
+                    <div className="border-t border-[var(--ws-border)] pt-3 mt-1">
+                      <p className="text-[11px] text-[var(--ws-text-tertiary)] uppercase tracking-wider font-semibold mb-3">
+                        Contribution room
+                      </p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <CurrencyInput
+                          label="TFSA Room"
+                          value={draft.tfsaRoom}
+                          onChange={(v) => updateField("tfsaRoom", v)}
+                        />
+                        <CurrencyInput
+                          label="RRSP Room"
+                          value={draft.rrspRoom}
+                          onChange={(v) => updateField("rrspRoom", v)}
+                        />
+                      </div>
+                    </div>
+                    <CurrencyInput
+                      label="Non-Registered"
+                      value={draft.nonRegBalance}
+                      onChange={(v) => updateField("nonRegBalance", v)}
+                    />
+                  </div>
+                </motion.div>
+              )}
+
+              {editSection === "expenses" && (
+                <motion.div
+                  key="expenses"
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 8 }}
+                  transition={{ duration: 0.15 }}
+                  className="bg-[var(--ws-bg-surface)] rounded-[20px] border border-[var(--ws-border)] p-5 shadow-sm"
+                >
+                  <p className="text-[11px] font-semibold text-[var(--ws-text-tertiary)] uppercase tracking-wider mb-4">
+                    Monthly expenses
+                  </p>
+                  <div className="flex flex-col gap-4">
+                    <SelectInput
+                      label="Housing type"
+                      value={draft.housingType}
+                      onChange={(v) => updateField("housingType", v as "rent" | "own")}
+                      options={HOUSING_OPTIONS}
+                    />
+                    <CurrencyInput
+                      label={draft.housingType === "rent" ? "Rent / month" : "Mortgage / month"}
+                      value={draft.housingExpense}
+                      onChange={(v) => updateField("housingExpense", v)}
+                    />
+                    <CurrencyInput
+                      label="Essentials / month"
+                      value={draft.essentialExpenses}
+                      onChange={(v) => updateField("essentialExpenses", v)}
+                    />
+                    <CurrencyInput
+                      label="Fun spending / month"
+                      value={draft.discretionarySpending}
+                      onChange={(v) => updateField("discretionarySpending", v)}
+                    />
+                    <CurrencyInput
+                      label="Debt payments / month"
+                      value={draft.debtPayments}
+                      onChange={(v) => updateField("debtPayments", v)}
+                    />
+                    {draft.housingType === "own" && (
+                      <CurrencyInput
+                        label="Mortgage balance"
+                        value={draft.mortgageBalance}
+                        onChange={(v) => updateField("mortgageBalance", v)}
+                      />
+                    )}
+                  </div>
+
+                  {/* Quick summary */}
+                  <div className="mt-4 pt-3 border-t border-[var(--ws-border)]">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[13px] text-[var(--ws-text-secondary)]">Total monthly outflow</span>
+                      <span className="text-[15px] font-bold text-[var(--ws-text-primary)] tabular-nums">
+                        {formatCurrency(
+                          draft.housingExpense +
+                          draft.essentialExpenses +
+                          draft.discretionarySpending +
+                          draft.debtPayments
+                        )}/mo
+                      </span>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         )}
       </AnimatePresence>

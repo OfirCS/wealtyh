@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { PATHFINDER_SYSTEM_PROMPT, buildUserMessage } from '@/lib/prompts';
-import type { FinancialProfile, PathfinderResult } from '@/lib/types';
+import type { FinancialProfile, PathfinderResult, SearchMetadata, SearchSource, PathfinderAPIResult } from '@/lib/types';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -99,10 +99,15 @@ LIFE_EVENT: ${lifeEvent}`,
 
 // ── Step 2: Search ───────────────────────────────────────────────────────────
 
+export interface SearchResult {
+  text: string;
+  metadata: SearchMetadata;
+}
+
 export async function searchForContext(
   ai: GoogleGenAI,
   queries: string[],
-): Promise<string> {
+): Promise<SearchResult> {
   const combined = queries.join('\n- ');
   const prompt = `Research the following topics and provide a concise factual summary for each. Include specific numbers, dates, and sources where possible. Keep each topic to 2-3 sentences.
 
@@ -120,19 +125,27 @@ Topics:
   });
 
   const text = response.text ?? '';
+  const sources: SearchSource[] = [];
+  const searchQueries: string[] = [];
 
-  const metadata = response.candidates?.[0]?.groundingMetadata;
-  if (metadata?.webSearchQueries) {
-    console.info('[Search] Queries used:', metadata.webSearchQueries);
+  const grounding = response.candidates?.[0]?.groundingMetadata;
+  if (grounding?.webSearchQueries) {
+    searchQueries.push(...grounding.webSearchQueries);
+    console.info('[Search] Queries used:', grounding.webSearchQueries);
   }
-  if (metadata?.groundingChunks) {
-    const sources = metadata.groundingChunks
-      .map((c) => c.web?.uri)
-      .filter(Boolean);
-    console.info('[Search] Sources:', sources.slice(0, 5));
+  if (grounding?.groundingChunks) {
+    for (const chunk of grounding.groundingChunks) {
+      if (chunk.web?.uri) {
+        sources.push({ title: chunk.web.title, url: chunk.web.uri });
+      }
+    }
+    console.info('[Search] Sources:', sources.slice(0, 5).map(s => s.url));
   }
 
-  return text;
+  return {
+    text,
+    metadata: { queries: searchQueries, sources: sources.slice(0, 8) },
+  };
 }
 
 // ── Step 3: Generate ─────────────────────────────────────────────────────────
@@ -179,7 +192,7 @@ export async function generatePlan(
 export async function runPathfinder(
   profile: FinancialProfile,
   lifeEvent: string,
-): Promise<PathfinderResult> {
+): Promise<PathfinderAPIResult> {
   const apiKey = process.env.GOOGLE_API_KEY;
   if (!apiKey) throw new Error('GOOGLE_API_KEY is not set. Add it to .env to enable AI.');
 
@@ -194,9 +207,12 @@ export async function runPathfinder(
 
   // Step 2: Search if needed
   let searchContext: string | null = null;
+  let searchMetadata: SearchMetadata | null = null;
   if (route.needs_search && route.queries.length > 0) {
     try {
-      searchContext = await searchForContext(ai, route.queries);
+      const searchResult = await searchForContext(ai, route.queries);
+      searchContext = searchResult.text;
+      searchMetadata = searchResult.metadata;
       console.info('[Search] Got context:', searchContext.slice(0, 200));
     } catch (err) {
       console.warn('[Search] Google Search failed, proceeding without:', err);
@@ -204,5 +220,6 @@ export async function runPathfinder(
   }
 
   // Step 3: Generate the plan
-  return generatePlan(ai, profile, lifeEvent, searchContext);
+  const result = await generatePlan(ai, profile, lifeEvent, searchContext);
+  return { result, searchMetadata };
 }

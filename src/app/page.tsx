@@ -2,8 +2,9 @@
 
 import { useReducer, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import type { AppState, AppAction, FinancialProfile, PathfinderResult } from '@/lib/types';
+import type { AppState, AppAction, FinancialProfile, PathfinderResult, SearchMetadata, QuickAction } from '@/lib/types';
 import { DEFAULT_PROFILE } from '@/lib/defaults';
+import { applyConfirmedActions } from '@/lib/apply-actions';
 import HomeScreen from '@/components/home/HomeScreen';
 import ThinkingView from '@/components/thinking/ThinkingView';
 import PlanView from '@/components/plan/PlanView';
@@ -15,21 +16,30 @@ function appReducer(state: AppState, action: AppAction): AppState {
       if (state.step !== 'home') return state;
       return { ...state, profile: action.profile };
     case 'SUBMIT_EVENT':
-      return { step: 'thinking', profile: state.profile, event: action.event };
+      return { step: 'thinking', profile: state.profile, customFunds: state.customFunds, event: action.event };
     case 'COMPLETE_THINKING':
       if (state.step !== 'thinking') return state;
-      return { step: 'plan', profile: state.profile, event: state.event, result: action.result };
+      return { step: 'plan', profile: state.profile, customFunds: state.customFunds, event: state.event, result: action.result, searchMetadata: action.searchMetadata };
     case 'THINKING_ERROR':
       if (state.step !== 'thinking') return state;
-      return { step: 'error', profile: state.profile, event: state.event, message: action.message };
+      return { step: 'error', profile: state.profile, customFunds: state.customFunds, event: state.event, message: action.message };
     case 'RESET':
-      return { step: 'home', profile: state.profile };
+      return { step: 'home', profile: state.profile, customFunds: state.customFunds };
+    case 'APPLY_ACTIONS': {
+      const { profile, customFunds } = applyConfirmedActions(
+        state.profile,
+        state.customFunds,
+        action.confirmedIndices,
+        action.actions,
+      );
+      return { step: 'home', profile, customFunds };
+    }
     default:
       return state;
   }
 }
 
-const initialState: AppState = { step: 'home', profile: DEFAULT_PROFILE };
+const initialState: AppState = { step: 'home', profile: DEFAULT_PROFILE, customFunds: [] };
 
 const pageVariants = {
   initial: { opacity: 0, y: 20 },
@@ -53,8 +63,8 @@ export default function Home() {
     dispatch({ type: 'SUBMIT_EVENT', event });
   }, []);
 
-  const handleThinkingComplete = useCallback((result: PathfinderResult) => {
-    dispatch({ type: 'COMPLETE_THINKING', result });
+  const handleThinkingComplete = useCallback((result: PathfinderResult, searchMetadata: SearchMetadata | null) => {
+    dispatch({ type: 'COMPLETE_THINKING', result, searchMetadata });
   }, []);
 
   const handleThinkingError = useCallback((message: string) => {
@@ -65,6 +75,10 @@ export default function Home() {
     dispatch({ type: 'RESET' });
   }, []);
 
+  const handleApplyActions = useCallback((confirmedIndices: number[], actions: QuickAction[]) => {
+    dispatch({ type: 'APPLY_ACTIONS', confirmedIndices, actions });
+  }, []);
+
   const handleRetry = useCallback(() => {
     if (state.step === 'error') {
       dispatch({ type: 'SUBMIT_EVENT', event: state.event });
@@ -72,16 +86,16 @@ export default function Home() {
   }, [state]);
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#E8E4DD] sm:py-6">
-      <main className="relative w-full h-full min-h-screen sm:min-h-[850px] sm:max-h-[850px] sm:max-w-[430px] bg-[var(--ws-bg-primary)] sm:rounded-[40px] shadow-2xl overflow-hidden flex flex-col items-center">
+    <div className="min-h-screen w-full flex items-center justify-center bg-[#E6E1DA] sm:py-6">
+      <main className="relative w-full h-full min-h-screen sm:min-h-[850px] sm:max-h-[850px] sm:max-w-[430px] bg-[var(--ws-bg-primary)] sm:rounded-[38px] sm:border sm:border-[#D8D3CC] sm:shadow-[0_24px_70px_rgba(42,39,36,0.16)] overflow-hidden flex flex-col items-center">
         {/* Header bar */}
         <header
-          className="absolute top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 bg-[var(--ws-bg-primary)]/90 backdrop-blur-md border-b border-[var(--ws-border)]"
+          className="absolute top-0 left-0 right-0 z-50 flex items-center justify-between px-6 pt-4 pb-3.5 bg-[var(--ws-bg-primary)]/95 backdrop-blur-md border-b border-[var(--ws-border)]"
         >
           <div className="flex items-center gap-3">
             <Logo />
             <span
-              className="text-[11px] font-medium px-1.5 py-0.5 rounded"
+              className="text-[11px] font-medium px-1.5 py-0.5 rounded-md"
               style={{
                 backgroundColor: 'var(--ws-bg-surface)',
                 color: 'var(--ws-text-tertiary)',
@@ -113,10 +127,11 @@ export default function Home() {
                 animate="animate"
                 exit="exit"
                 transition={pageTransition}
-                className="pt-[68px] pb-10"
+                className="pt-[70px] pb-10"
               >
                 <HomeScreen
                   profile={state.profile}
+                  customFunds={state.customFunds}
                   onProfileChange={handleProfileChange}
                   onSubmit={handleEventSubmit}
                 />
@@ -149,12 +164,14 @@ export default function Home() {
                 animate="animate"
                 exit="exit"
                 transition={pageTransition}
-                className="pt-[68px]"
+                className="pt-[70px]"
               >
                 <PlanView
                   result={state.result}
                   event={state.event}
+                  searchMetadata={state.searchMetadata}
                   onReset={handleReset}
+                  onApplyActions={handleApplyActions}
                 />
               </motion.div>
             )}
@@ -167,7 +184,7 @@ export default function Home() {
                 animate="animate"
                 exit="exit"
                 transition={pageTransition}
-                className="pt-[68px]"
+                className="pt-[70px]"
               >
                 <div className="mx-auto max-w-[400px] px-6 pt-20 text-center">
                   <div

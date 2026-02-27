@@ -4,117 +4,109 @@ import { motion } from "framer-motion";
 import type { AccountImpact } from "@/lib/types";
 
 interface AccountImpactCardsProps {
-    impacts: AccountImpact[];
+  impacts: AccountImpact[];
 }
 
 function getStatusColor(status: AccountImpact["status"]) {
-    switch (status) {
-        case "positive":
-            return "text-[var(--ws-accent-green)]";
-        case "negative":
-            return "text-[var(--ws-accent-red)]";
-        case "warning":
-            return "text-[var(--ws-accent-yellow)]";
-        case "neutral":
-        default:
-            return "text-[var(--ws-text-primary)]";
-    }
+  switch (status) {
+    case "positive":
+      return "#2DE589";
+    case "negative":
+      return "#D23A3A";
+    case "warning":
+      return "#FFD60A";
+    case "neutral":
+    default:
+      return "#9B9895";
+  }
 }
 
-function getStatusBgColor(status: AccountImpact["status"]) {
-    switch (status) {
-        case "positive":
-            return "bg-[var(--ws-accent-green)] opacity-10";
-        case "negative":
-            return "bg-[var(--ws-accent-red)] opacity-10";
-        case "warning":
-            return "bg-[var(--ws-accent-yellow)] opacity-10";
-        case "neutral":
-        default:
-            return "bg-[var(--ws-border)] opacity-30";
-    }
+function getStatusLabel(status: AccountImpact["status"]) {
+  switch (status) {
+    case "positive":
+      return "Growing";
+    case "negative":
+      return "Decreasing";
+    case "warning":
+      return "Watch";
+    case "neutral":
+    default:
+      return "No change";
+  }
 }
 
 function formatAmount(amount: number): string {
-    return `$${amount.toLocaleString()}`;
+  return `$${amount.toLocaleString("en-CA")}`;
 }
 
 export default function AccountImpactCards({ impacts }: AccountImpactCardsProps) {
-    if (!impacts || impacts.length === 0) return null;
+  if (!impacts || impacts.length === 0) return null;
 
-    return (
-        <div className="mb-8">
-            <h3 className="text-[var(--ws-text-primary)] text-[20px] font-serif tracking-tight mb-4">
-                Account Impacts
-            </h3>
-            <div className="flex overflow-x-auto gap-4 snap-x snap-mandatory pb-4 -mx-5 px-5 hide-scrollbar">
-                {impacts.map((impact, i) => (
-                    <motion.div
-                        key={i}
-                        className="bg-[var(--ws-bg-surface)] rounded-[var(--ws-radius-lg)] border border-[var(--ws-border)] p-5 shadow-sm flex flex-col relative overflow-hidden w-[280px] shrink-0 scroll-ml-5 snap-start"
-                        initial={{ opacity: 0, x: 20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{
-                            duration: 0.4,
-                            ease: "easeOut",
-                            delay: 0.2 + i * 0.1,
-                        }}
-                    >
-                        {/* Soft background glow based on status */}
-                        <div
-                            className={`absolute -right-12 -top-12 w-32 h-32 rounded-full blur-2xl ${getStatusBgColor(
-                                impact.status
-                            )}`}
-                        />
+  return (
+    <div className="mb-4">
+      <p className="text-[11px] text-[var(--ws-text-tertiary)] uppercase tracking-wider font-semibold mb-3">
+        Your accounts after
+      </p>
+      <div className="flex flex-col gap-4">
+        {impacts.map((impact, i) => {
+          const color = getStatusColor(impact.status);
+          const diff = impact.projected_balance - impact.current_balance;
+          const diffStr = diff >= 0 ? `+${formatAmount(diff)}` : `-${formatAmount(Math.abs(diff))}`;
 
-                        <div className="flex flex-col mb-4 relative z-10">
-                            <h4 className="text-[var(--ws-text-primary)] font-medium text-[16px] mb-1">
-                                {impact.account_name}
-                            </h4>
-                            <span
-                                className={`text-[15px] font-bold ${getStatusColor(
-                                    impact.status
-                                )}`}
-                            >
-                                {impact.impact_text}
-                            </span>
-                        </div>
+          return (
+            <motion.div
+              key={i}
+              className="bg-[var(--ws-bg-surface)] rounded-[20px] border border-[#DDD8D1] p-4 shadow-[0_1px_2px_rgba(42,39,36,0.08)]"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, ease: "easeOut" as const, delay: 0.1 + i * 0.06 }}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: color }}
+                  />
+                  <span className="text-[16px] font-semibold text-[var(--ws-text-primary)] tracking-[-0.01em]">
+                    {impact.account_name}
+                  </span>
+                </div>
+                <span
+                  className="text-[11px] font-semibold px-2.5 py-1 rounded-full"
+                  style={{ backgroundColor: `${color}15`, color }}
+                >
+                  {getStatusLabel(impact.status)}
+                </span>
+              </div>
 
-                        <div className="flex items-center gap-2 mb-4 relative z-10">
-                            <span className="text-[17px] font-medium text-[var(--ws-text-tertiary)] line-through decoration-[var(--ws-border)]">
-                                {formatAmount(impact.current_balance)}
-                            </span>
-                            <svg
-                                width="14"
-                                height="14"
-                                viewBox="0 0 16 16"
-                                fill="none"
-                                xmlns="http://www.w3.org/2000/svg"
-                                className="text-[var(--ws-text-secondary)]"
-                            >
-                                <path
-                                    d="M3.5 8H12.5M12.5 8L8.5 4M12.5 8L8.5 12"
-                                    stroke="currentColor"
-                                    strokeWidth="1.5"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                />
-                            </svg>
-                            <span className="text-[20px] font-semibold text-[var(--ws-text-primary)]">
-                                {formatAmount(impact.projected_balance)}
-                            </span>
-                        </div>
+              {/* Balance change row */}
+              <div className="flex items-baseline gap-2 mb-1">
+                <span className="text-[21px] font-semibold text-[var(--ws-text-primary)] tabular-nums tracking-[-0.02em]">
+                  {formatAmount(impact.projected_balance)}
+                </span>
+                <span
+                  className="text-[13px] font-semibold tabular-nums"
+                  style={{ color }}
+                >
+                  {diffStr}
+                </span>
+              </div>
 
-                        <div className="mt-auto relative z-10">
-                            {impact.note && (
-                                <p className="text-[13px] text-[var(--ws-text-secondary)] bg-[var(--ws-bg-primary)] px-3 py-2.5 rounded-lg border border-[var(--ws-border)]">
-                                    {impact.note}
-                                </p>
-                            )}
-                        </div>
-                    </motion.div>
-                ))}
-            </div>
-        </div>
-    );
+              {/* Impact text */}
+              <p className="text-[13px] text-[var(--ws-text-secondary)] leading-snug">
+                {impact.impact_text}
+              </p>
+
+              {/* Note */}
+              {impact.note && (
+                <p className="text-[12px] text-[var(--ws-text-tertiary)] mt-2 pl-3 border-l-2 border-[var(--ws-border)]">
+                  {impact.note}
+                </p>
+              )}
+            </motion.div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }

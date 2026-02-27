@@ -1,21 +1,21 @@
 :root {
   /* Colors */
-  --ws-bg-primary: #F7F4F0; /* Wealthsimple warm sand */
+  --ws-bg-primary: #F5F2ED; /* Wealthsimple warm sand */
   --ws-bg-surface: #FFFFFF; /* White cards */
   --ws-bg-elevated: #FFFFFF;
   --ws-bg-dark: #2A2724; /* Deep warm espresso black */
-  --ws-bg-advisor: #F0EBE1;
+  --ws-bg-advisor: #ECE6DC;
 
   --ws-text-primary: #2A2724;
-  --ws-text-secondary: #5F5C58;
-  --ws-text-tertiary: #928E8A;
+  --ws-text-secondary: #5F5B56;
+  --ws-text-tertiary: #8E8984;
   --ws-text-inverse: #FFFFFF;
 
   --ws-accent-yellow: #FFD500; /* Wealthsimple Gold/Yellow */
-  --ws-accent-green: #1DD37F; /* Wealthsimple Trade Green */
+  --ws-accent-green: #2DE589; /* Wealthsimple Trade Green */
   --ws-accent-red: #D23A3A;
 
-  --ws-border: #E8E4DD; /* Slightly warmer border */
+  --ws-border: #E1DCD5; /* Slightly warmer border */
 
   /* Spacing */
   --ws-space-xs: 4px;

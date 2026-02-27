@@ -1,14 +1,14 @@
-import type { FinancialProfile, PathfinderResult } from './types';
+import type { FinancialProfile, PathfinderResult, SearchMetadata } from './types';
 
 export interface PathfinderResponse {
   result: PathfinderResult;
-  error?: string;
+  searchMetadata: SearchMetadata | null;
 }
 
 export async function callPathfinder(
   profile: FinancialProfile,
   lifeEvent: string,
-): Promise<PathfinderResult> {
+): Promise<PathfinderResponse> {
   const response = await fetch('/api/pathfinder', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -21,5 +21,8 @@ export async function callPathfinder(
     throw new Error(data.error || `API error (${response.status})`);
   }
 
-  return data.result;
+  return {
+    result: data.result,
+    searchMetadata: data.searchMetadata ?? null,
+  };
 }

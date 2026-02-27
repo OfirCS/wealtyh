@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import type { FinancialProfile, PathfinderResult } from "@/lib/types";
+import type { FinancialProfile, PathfinderResult, SearchMetadata } from "@/lib/types";
 import { callPathfinder } from "@/lib/claude";
 import ThinkingStep from "./ThinkingStep";
 import ThinkingProgress from "./ThinkingProgress";
@@ -10,7 +10,7 @@ import ThinkingProgress from "./ThinkingProgress";
 interface ThinkingViewProps {
   profile: FinancialProfile;
   event: string;
-  onComplete: (result: PathfinderResult) => void;
+  onComplete: (result: PathfinderResult, searchMetadata: SearchMetadata | null) => void;
   onError: (message: string) => void;
 }
 
@@ -67,7 +67,6 @@ function generateThinkingLines(
   lines.push("Searching for current rates and data");
   lines.push("Building your personalized financial plan");
 
-  // Deduplicate and cap at 7
   return [...new Set(lines)].slice(0, 7);
 }
 
@@ -92,19 +91,38 @@ export default function ThinkingView({
   );
   const [showProgress, setShowProgress] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [heroImage, setHeroImage] = useState<string | null>(null);
   const hasStarted = useRef(false);
   const apiResult = useRef<PathfinderResult | null>(null);
+  const apiSearchMeta = useRef<SearchMetadata | null>(null);
   const apiError = useRef<string | null>(null);
 
   const runSequence = useCallback(async () => {
-    // Fire API call in parallel — animation is the "theater"
+    // Fire API call in parallel
     const apiPromise = callPathfinder(profile, event)
-      .then((result) => {
-        apiResult.current = result;
+      .then((response) => {
+        apiResult.current = response.result;
+        apiSearchMeta.current = response.searchMetadata;
       })
       .catch((err) => {
         apiError.current =
           err instanceof Error ? err.message : "Something went wrong";
+      });
+
+    // Fire image generation in parallel (optional, non-blocking)
+    fetch("/api/generate-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lifeEvent: event }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.imageBase64) {
+          setHeroImage(`data:image/png;base64,${data.imageBase64}`);
+        }
+      })
+      .catch(() => {
+        // Image gen is optional, fail silently
       });
 
     await delay(400);
@@ -143,7 +161,7 @@ export default function ThinkingView({
 
     // Route to result or error
     if (apiResult.current) {
-      onComplete(apiResult.current);
+      onComplete(apiResult.current, apiSearchMeta.current);
     } else {
       onError(apiError.current || "Failed to generate financial plan");
     }
@@ -168,6 +186,26 @@ export default function ThinkingView({
       animate={{ opacity: 1 }}
       transition={{ duration: 0.3 }}
     >
+      {/* Hero image (fades in when ready) */}
+      <AnimatePresence>
+        {heroImage && (
+          <motion.div
+            className="w-full mb-6 flex justify-center"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.6, ease: "easeOut" as const }}
+          >
+            <div className="w-[160px] h-[160px] rounded-[24px] overflow-hidden shadow-lg border border-white/20">
+              <img
+                src={heroImage}
+                alt="Your financial path"
+                className="w-full h-full object-cover"
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* User prompt */}
       <motion.p
         className="text-[14px] italic leading-relaxed mb-6"

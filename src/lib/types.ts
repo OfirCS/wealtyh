@@ -108,20 +108,46 @@ export interface PathfinderResult {
   research_needed?: ResearchTopic[];
 }
 
+// ===== Search Metadata (passed from API to UI) =====
+
+export interface SearchSource {
+  title?: string;
+  url: string;
+}
+
+export interface SearchMetadata {
+  queries: string[];
+  sources: SearchSource[];
+}
+
+export interface PathfinderAPIResult {
+  result: PathfinderResult;
+  searchMetadata: SearchMetadata | null;
+}
+
+// ===== Custom Funds (created via actions) =====
+
+export interface CustomFund {
+  name: string;
+  balance: number;
+  emoji?: string;
+}
+
 // ===== App State Machine =====
 
 export type AppState =
-  | { step: 'home'; profile: FinancialProfile }
-  | { step: 'thinking'; profile: FinancialProfile; event: string }
-  | { step: 'plan'; profile: FinancialProfile; event: string; result: PathfinderResult }
-  | { step: 'error'; profile: FinancialProfile; event: string; message: string };
+  | { step: 'home'; profile: FinancialProfile; customFunds: CustomFund[] }
+  | { step: 'thinking'; profile: FinancialProfile; customFunds: CustomFund[]; event: string }
+  | { step: 'plan'; profile: FinancialProfile; customFunds: CustomFund[]; event: string; result: PathfinderResult; searchMetadata: SearchMetadata | null }
+  | { step: 'error'; profile: FinancialProfile; customFunds: CustomFund[]; event: string; message: string };
 
 export type AppAction =
   | { type: 'SUBMIT_EVENT'; event: string }
   | { type: 'UPDATE_PROFILE'; profile: FinancialProfile }
-  | { type: 'COMPLETE_THINKING'; result: PathfinderResult }
+  | { type: 'COMPLETE_THINKING'; result: PathfinderResult; searchMetadata: SearchMetadata | null }
   | { type: 'THINKING_ERROR'; message: string }
-  | { type: 'RESET' };
+  | { type: 'RESET' }
+  | { type: 'APPLY_ACTIONS'; confirmedIndices: number[]; actions: QuickAction[] };
 
 // ===== Suggestion Chip =====
 
