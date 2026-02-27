@@ -1,26 +1,79 @@
 @import "tailwindcss";
-
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@import "../styles/tokens.css";
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-background: var(--ws-bg-primary);
+  --color-foreground: var(--ws-text-primary);
+  --color-ws-bg-primary: var(--ws-bg-primary);
+  --color-ws-bg-surface: var(--ws-bg-surface);
+  --color-ws-bg-elevated: var(--ws-bg-elevated);
+  --color-ws-bg-dark: var(--ws-bg-dark);
+  --color-ws-bg-advisor: var(--ws-bg-advisor);
+  --color-ws-text-primary: var(--ws-text-primary);
+  --color-ws-text-secondary: var(--ws-text-secondary);
+  --color-ws-text-tertiary: var(--ws-text-tertiary);
+  --color-ws-text-inverse: var(--ws-text-inverse);
+  --color-ws-accent-yellow: var(--ws-accent-yellow);
+  --color-ws-accent-green: var(--ws-accent-green);
+  --color-ws-accent-red: var(--ws-accent-red);
+  --color-ws-border: var(--ws-border);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--ws-bg-primary);
+  color: var(--ws-text-primary);
+  font-family: var(--font-inter), system-ui, -apple-system, sans-serif;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Typography utilities */
+.font-serif {
+  font-family: var(--font-newsreader), "Times New Roman", Times, serif;
+  letter-spacing: -0.02em;
+}
+
+/* Currency input - hide spin buttons */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Scrollbar styling for horizontal list */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  /* IE and Edge */
+  scrollbar-width: none;
+  /* Firefox */
+}
+
+/* Global simple Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--ws-border);
+  border-radius: 3px;
+}
+
+/* Selection color */
+::selection {
+  background: var(--ws-accent-yellow);
+  color: var(--ws-text-primary);
 }

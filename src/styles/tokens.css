@@ -1,0 +1,37 @@
+:root {
+  /* Colors */
+  --ws-bg-primary: #F7F4F0; /* Wealthsimple warm sand */
+  --ws-bg-surface: #FFFFFF; /* White cards */
+  --ws-bg-elevated: #FFFFFF;
+  --ws-bg-dark: #2A2724; /* Deep warm espresso black */
+  --ws-bg-advisor: #F0EBE1;
+
+  --ws-text-primary: #2A2724;
+  --ws-text-secondary: #5F5C58;
+  --ws-text-tertiary: #928E8A;
+  --ws-text-inverse: #FFFFFF;
+
+  --ws-accent-yellow: #FFD500; /* Wealthsimple Gold/Yellow */
+  --ws-accent-green: #1DD37F; /* Wealthsimple Trade Green */
+  --ws-accent-red: #D23A3A;
+
+  --ws-border: #E8E4DD; /* Slightly warmer border */
+
+  /* Spacing */
+  --ws-space-xs: 4px;
+  --ws-space-sm: 8px;
+  --ws-space-md: 16px;
+  --ws-space-lg: 24px;
+  --ws-space-xl: 40px;
+  --ws-space-2xl: 64px;
+
+  /* Radius */
+  --ws-radius-sm: 8px;
+  --ws-radius-md: 16px; /* softer 16px cards */
+  --ws-radius-lg: 24px; /* very round components */
+
+  /* Shadows */
+  --ws-shadow-sm: 0 1px 3px rgba(50, 48, 47, 0.06);
+  --ws-shadow-md: 0 4px 12px rgba(50, 48, 47, 0.08);
+  --ws-shadow-lg: 0 8px 24px rgba(50, 48, 47, 0.12);
+}

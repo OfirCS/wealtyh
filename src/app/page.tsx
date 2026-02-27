@@ -1,63 +1,215 @@
-import Image from "next/image";
+'use client';
+
+import { useReducer, useCallback } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import type { AppState, AppAction, FinancialProfile, PathfinderResult } from '@/lib/types';
+import { DEFAULT_PROFILE } from '@/lib/defaults';
+import HomeScreen from '@/components/home/HomeScreen';
+import ThinkingView from '@/components/thinking/ThinkingView';
+import PlanView from '@/components/plan/PlanView';
+import { Logo } from '@/components/ui/Logo';
+
+function appReducer(state: AppState, action: AppAction): AppState {
+  switch (action.type) {
+    case 'UPDATE_PROFILE':
+      if (state.step !== 'home') return state;
+      return { ...state, profile: action.profile };
+    case 'SUBMIT_EVENT':
+      return { step: 'thinking', profile: state.profile, event: action.event };
+    case 'COMPLETE_THINKING':
+      if (state.step !== 'thinking') return state;
+      return { step: 'plan', profile: state.profile, event: state.event, result: action.result };
+    case 'THINKING_ERROR':
+      if (state.step !== 'thinking') return state;
+      return { step: 'error', profile: state.profile, event: state.event, message: action.message };
+    case 'RESET':
+      return { step: 'home', profile: state.profile };
+    default:
+      return state;
+  }
+}
+
+const initialState: AppState = { step: 'home', profile: DEFAULT_PROFILE };
+
+const pageVariants = {
+  initial: { opacity: 0, y: 20 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -20 },
+};
+
+const pageTransition = {
+  duration: 0.4,
+  ease: 'easeOut' as const,
+};
 
 export default function Home() {
+  const [state, dispatch] = useReducer(appReducer, initialState);
+
+  const handleProfileChange = useCallback((profile: FinancialProfile) => {
+    dispatch({ type: 'UPDATE_PROFILE', profile });
+  }, []);
+
+  const handleEventSubmit = useCallback((event: string) => {
+    dispatch({ type: 'SUBMIT_EVENT', event });
+  }, []);
+
+  const handleThinkingComplete = useCallback((result: PathfinderResult) => {
+    dispatch({ type: 'COMPLETE_THINKING', result });
+  }, []);
+
+  const handleThinkingError = useCallback((message: string) => {
+    dispatch({ type: 'THINKING_ERROR', message });
+  }, []);
+
+  const handleReset = useCallback(() => {
+    dispatch({ type: 'RESET' });
+  }, []);
+
+  const handleRetry = useCallback(() => {
+    if (state.step === 'error') {
+      dispatch({ type: 'SUBMIT_EVENT', event: state.event });
+    }
+  }, [state]);
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <div className="min-h-screen w-full flex items-center justify-center bg-[#E8E4DD] sm:py-6">
+      <main className="relative w-full h-full min-h-screen sm:min-h-[850px] sm:max-h-[850px] sm:max-w-[430px] bg-[var(--ws-bg-primary)] sm:rounded-[40px] shadow-2xl overflow-hidden flex flex-col items-center">
+        {/* Header bar */}
+        <header
+          className="absolute top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 bg-[var(--ws-bg-primary)]/90 backdrop-blur-md border-b border-[var(--ws-border)]"
+        >
+          <div className="flex items-center gap-3">
+            <Logo />
+            <span
+              className="text-[11px] font-medium px-1.5 py-0.5 rounded"
+              style={{
+                backgroundColor: 'var(--ws-bg-surface)',
+                color: 'var(--ws-text-tertiary)',
+                transition: 'all 500ms ease-in-out',
+              }}
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+              beta
+            </span>
+          </div>
+          {state.step !== 'home' && (
+            <button
+              onClick={handleReset}
+              className="text-[13px] font-medium transition-colors hover:opacity-70"
+              style={{ color: 'var(--ws-text-tertiary)' }}
             >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+              Start over
+            </button>
+          )}
+        </header>
+
+        {/* Scrollable Screen content area */}
+        <div className="w-full h-full overflow-y-auto overflow-x-hidden hide-scrollbar">
+          <AnimatePresence mode="wait">
+            {state.step === 'home' && (
+              <motion.div
+                key="home"
+                variants={pageVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                transition={pageTransition}
+                className="pt-[68px] pb-10"
+              >
+                <HomeScreen
+                  profile={state.profile}
+                  onProfileChange={handleProfileChange}
+                  onSubmit={handleEventSubmit}
+                />
+              </motion.div>
+            )}
+
+            {state.step === 'thinking' && (
+              <motion.div
+                key="thinking"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.5 }}
+                className="w-full h-full flex flex-col justify-center items-center p-6 mt-10"
+              >
+                <ThinkingView
+                  profile={state.profile}
+                  event={state.event}
+                  onComplete={handleThinkingComplete}
+                  onError={handleThinkingError}
+                />
+              </motion.div>
+            )}
+
+            {state.step === 'plan' && (
+              <motion.div
+                key="plan"
+                variants={pageVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                transition={pageTransition}
+                className="pt-[68px]"
+              >
+                <PlanView
+                  result={state.result}
+                  event={state.event}
+                  onReset={handleReset}
+                />
+              </motion.div>
+            )}
+
+            {state.step === 'error' && (
+              <motion.div
+                key="error"
+                variants={pageVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                transition={pageTransition}
+                className="pt-[68px]"
+              >
+                <div className="mx-auto max-w-[400px] px-6 pt-20 text-center">
+                  <div
+                    className="rounded-xl p-6 mb-6"
+                    style={{
+                      backgroundColor: 'var(--ws-bg-surface)',
+                      border: '1px solid var(--ws-border)',
+                    }}
+                  >
+                    <p className="text-[18px] font-semibold mb-2" style={{ color: 'var(--ws-text-primary)' }}>
+                      Something went wrong
+                    </p>
+                    <p className="text-[14px] mb-5" style={{ color: 'var(--ws-text-secondary)' }}>
+                      {state.message}
+                    </p>
+                    <div className="flex gap-3 justify-center">
+                      <button
+                        onClick={handleRetry}
+                        className="px-5 py-2.5 rounded-full text-[14px] font-semibold cursor-pointer"
+                        style={{
+                          backgroundColor: 'var(--ws-text-primary)',
+                          color: 'var(--ws-bg-primary)',
+                        }}
+                      >
+                        Try again
+                      </button>
+                      <button
+                        onClick={handleReset}
+                        className="px-5 py-2.5 rounded-full text-[14px] font-medium cursor-pointer"
+                        style={{
+                          border: '1px solid var(--ws-border)',
+                          color: 'var(--ws-text-secondary)',
+                        }}
+                      >
+                        Go back
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </main>
     </div>
