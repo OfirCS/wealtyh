@@ -21,6 +21,7 @@ export interface FinancialProfile {
   essentialExpenses: number;
   discretionarySpending: number;
   debtPayments: number;
+  creditCardBalance: number;
 }
 
 // ===== Pathfinder Result (AI response) =====
@@ -133,10 +134,19 @@ export interface CustomFund {
   emoji?: string;
 }
 
+// ===== Post-Action Feedback =====
+
+export interface AppliedSummary {
+  actions: string[];
+  balanceChanges: Partial<Record<string, number>>;
+  newFundNames: string[];
+  fundChanges: Record<string, number>;
+}
+
 // ===== App State Machine =====
 
 export type AppState =
-  | { step: 'home'; profile: FinancialProfile; customFunds: CustomFund[] }
+  | { step: 'home'; profile: FinancialProfile; customFunds: CustomFund[]; appliedSummary?: AppliedSummary }
   | { step: 'thinking'; profile: FinancialProfile; customFunds: CustomFund[]; event: string }
   | { step: 'plan'; profile: FinancialProfile; customFunds: CustomFund[]; event: string; result: PathfinderResult; searchMetadata: SearchMetadata | null }
   | { step: 'error'; profile: FinancialProfile; customFunds: CustomFund[]; event: string; message: string };

@@ -1,21 +1,31 @@
 :root {
   /* Colors */
-  --ws-bg-primary: #F5F2ED; /* Wealthsimple warm sand */
-  --ws-bg-surface: #FFFFFF; /* White cards */
-  --ws-bg-elevated: #FFFFFF;
-  --ws-bg-dark: #2A2724; /* Deep warm espresso black */
-  --ws-bg-advisor: #ECE6DC;
+  --ws-bg-primary: #1D1D1C;
+  /* Deep charcoal */
+  --ws-bg-surface: #262625;
+  /* Slightly lighter elevated dark */
+  --ws-bg-elevated: #2D2D2C;
+  --ws-bg-dark: #121212;
+  /* Extreme dark */
+  --ws-bg-advisor: #2D2D2C;
 
-  --ws-text-primary: #2A2724;
-  --ws-text-secondary: #5F5B56;
-  --ws-text-tertiary: #8E8984;
-  --ws-text-inverse: #FFFFFF;
+  --ws-text-primary: #FCFCFC;
+  /* Crisp off-white */
+  --ws-text-secondary: #9B9B9A;
+  /* Muted grey */
+  --ws-text-tertiary: #686664;
+  --ws-text-inverse: #1D1D1C;
+  /* Dark text for light buttons */
 
-  --ws-accent-yellow: #FFD500; /* Wealthsimple Gold/Yellow */
-  --ws-accent-green: #2DE589; /* Wealthsimple Trade Green */
-  --ws-accent-red: #D23A3A;
+  --ws-accent-yellow: #FCFCFC;
+  /* Using white as primary accent instead of yellow to match AI builders */
+  --ws-accent-green: #486635;
+  /* Sophisticated muted green */
+  --ws-accent-red: #A43D12;
+  /* Sophisticated terracotta red */
 
-  --ws-border: #E1DCD5; /* Slightly warmer border */
+  --ws-border: #3A3938;
+  /* Subtle dark border */
 
   /* Spacing */
   --ws-space-xs: 4px;
@@ -27,8 +37,10 @@
 
   /* Radius */
   --ws-radius-sm: 8px;
-  --ws-radius-md: 16px; /* softer 16px cards */
-  --ws-radius-lg: 24px; /* very round components */
+  --ws-radius-md: 16px;
+  /* softer 16px cards */
+  --ws-radius-lg: 24px;
+  /* very round components */
 
   /* Shadows */
   --ws-shadow-sm: 0 1px 3px rgba(50, 48, 47, 0.06);

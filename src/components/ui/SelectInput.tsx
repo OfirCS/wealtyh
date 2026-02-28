@@ -27,7 +27,7 @@ export default function SelectInput({
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full appearance-none rounded-[8px] border border-[var(--ws-border)] bg-[var(--ws-bg-surface)] px-4 py-3 pr-10 text-[15px] text-[var(--ws-text-primary)] focus:border-[var(--ws-text-tertiary)] focus:outline-none transition-colors cursor-pointer"
+          className="w-full appearance-none rounded-[8px] border border-[var(--ws-border)] bg-[var(--ws-bg-primary)] px-4 py-3 pr-10 text-[15px] text-[var(--ws-text-primary)] focus:border-[var(--ws-text-primary)] focus:outline-none transition-colors cursor-pointer"
         >
           <option value="" disabled>
             Select...

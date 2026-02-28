@@ -2,19 +2,19 @@
 
 import { useReducer, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import type { AppState, AppAction, FinancialProfile, PathfinderResult, SearchMetadata, QuickAction } from '@/lib/types';
+import type { AppState, AppAction, FinancialProfile, PathfinderResult, SearchMetadata, QuickAction, AppliedSummary } from '@/lib/types';
 import { DEFAULT_PROFILE } from '@/lib/defaults';
 import { applyConfirmedActions } from '@/lib/apply-actions';
 import HomeScreen from '@/components/home/HomeScreen';
 import ThinkingView from '@/components/thinking/ThinkingView';
 import PlanView from '@/components/plan/PlanView';
-import { Logo } from '@/components/ui/Logo';
+import { Logo } from "@/components/ui/Logo";
 
 function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
     case 'UPDATE_PROFILE':
       if (state.step !== 'home') return state;
-      return { ...state, profile: action.profile };
+      return { step: 'home', profile: action.profile, customFunds: state.customFunds };
     case 'SUBMIT_EVENT':
       return { step: 'thinking', profile: state.profile, customFunds: state.customFunds, event: action.event };
     case 'COMPLETE_THINKING':
@@ -26,13 +26,49 @@ function appReducer(state: AppState, action: AppAction): AppState {
     case 'RESET':
       return { step: 'home', profile: state.profile, customFunds: state.customFunds };
     case 'APPLY_ACTIONS': {
+      const oldProfile = state.profile;
+      const oldFunds = state.customFunds;
       const { profile, customFunds } = applyConfirmedActions(
-        state.profile,
-        state.customFunds,
+        oldProfile,
+        oldFunds,
         action.confirmedIndices,
         action.actions,
       );
-      return { step: 'home', profile, customFunds };
+
+      const balanceFields = [
+        'chequingBalance', 'savingsBalance', 'tfsaBalance',
+        'rrspBalance', 'fhsaBalance', 'nonRegBalance',
+      ] as const;
+      const balanceChanges: Partial<Record<string, number>> = {};
+      for (const field of balanceFields) {
+        const delta = profile[field] - oldProfile[field];
+        if (delta !== 0) balanceChanges[field] = delta;
+      }
+
+      const oldFundNames = new Set(oldFunds.map(f => f.name));
+      const newFundNames = customFunds
+        .filter(f => !oldFundNames.has(f.name))
+        .map(f => f.name);
+
+      const fundChanges: Record<string, number> = {};
+      for (const fund of customFunds) {
+        const old = oldFunds.find(f => f.name === fund.name);
+        const delta = old ? fund.balance - old.balance : fund.balance;
+        if (delta !== 0) fundChanges[fund.name] = delta;
+      }
+
+      const actions = action.confirmedIndices
+        .map(i => action.actions[i]?.title)
+        .filter((t): t is string => !!t);
+
+      const appliedSummary: AppliedSummary = {
+        actions,
+        balanceChanges,
+        newFundNames,
+        fundChanges,
+      };
+
+      return { step: 'home', profile, customFunds, appliedSummary };
     }
     default:
       return state;
@@ -86,8 +122,8 @@ export default function Home() {
   }, [state]);
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#E6E1DA] sm:py-6">
-      <main className="relative w-full h-full min-h-screen sm:min-h-[850px] sm:max-h-[850px] sm:max-w-[430px] bg-[var(--ws-bg-primary)] sm:rounded-[38px] sm:border sm:border-[#D8D3CC] sm:shadow-[0_24px_70px_rgba(42,39,36,0.16)] overflow-hidden flex flex-col items-center">
+    <div className="min-h-screen w-full flex items-center justify-center bg-[var(--ws-bg-dark)] sm:p-6">
+      <main className="relative w-full h-full min-h-screen sm:min-h-[850px] max-w-5xl bg-[var(--ws-bg-primary)] sm:rounded-[32px] sm:border sm:border-[var(--ws-border)] shadow-[0_24px_70px_rgba(0,0,0,0.4)] overflow-hidden flex flex-col items-center">
         {/* Header bar */}
         <header
           className="absolute top-0 left-0 right-0 z-50 flex items-center justify-between px-6 pt-4 pb-3.5 bg-[var(--ws-bg-primary)]/95 backdrop-blur-md border-b border-[var(--ws-border)]"
@@ -117,8 +153,8 @@ export default function Home() {
         </header>
 
         {/* Scrollable Screen content area */}
-        <div className="w-full h-full overflow-y-auto overflow-x-hidden hide-scrollbar">
-          <AnimatePresence mode="wait">
+        <div className="w-full h-full overflow-y-auto overflow-x-hidden hide-scrollbar relative">
+          <AnimatePresence mode="popLayout">
             {state.step === 'home' && (
               <motion.div
                 key="home"
@@ -127,11 +163,12 @@ export default function Home() {
                 animate="animate"
                 exit="exit"
                 transition={pageTransition}
-                className="pt-[70px] pb-10"
+                className="pt-[70px] pb-10 w-full"
               >
                 <HomeScreen
                   profile={state.profile}
                   customFunds={state.customFunds}
+                  appliedSummary={state.appliedSummary}
                   onProfileChange={handleProfileChange}
                   onSubmit={handleEventSubmit}
                 />
@@ -149,6 +186,7 @@ export default function Home() {
               >
                 <ThinkingView
                   profile={state.profile}
+                  customFunds={state.customFunds}
                   event={state.event}
                   onComplete={handleThinkingComplete}
                   onError={handleThinkingError}
@@ -164,7 +202,7 @@ export default function Home() {
                 animate="animate"
                 exit="exit"
                 transition={pageTransition}
-                className="pt-[70px]"
+                className="pt-[70px] w-full"
               >
                 <PlanView
                   result={state.result}
@@ -184,7 +222,7 @@ export default function Home() {
                 animate="animate"
                 exit="exit"
                 transition={pageTransition}
-                className="pt-[70px]"
+                className="pt-[70px] w-full"
               >
                 <div className="mx-auto max-w-[400px] px-6 pt-20 text-center">
                   <div

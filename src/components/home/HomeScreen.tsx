@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { SUGGESTION_CHIPS } from "@/lib/defaults";
-import type { FinancialProfile, CustomFund } from "@/lib/types";
+import type { FinancialProfile, CustomFund, AppliedSummary } from "@/lib/types";
 import PromptInput from "@/components/prompt/PromptInput";
 import CurrencyInput from "@/components/ui/CurrencyInput";
 import RangeSlider from "@/components/ui/RangeSlider";
@@ -12,8 +12,23 @@ import SelectInput from "@/components/ui/SelectInput";
 interface HomeScreenProps {
   profile: FinancialProfile;
   customFunds: CustomFund[];
+  appliedSummary?: AppliedSummary;
   onProfileChange: (profile: FinancialProfile) => void;
   onSubmit: (event: string) => void;
+}
+
+function BalanceChange({ delta }: { delta: number }) {
+  if (delta === 0) return null;
+  const positive = delta > 0;
+  const formatted = `${positive ? "+" : "-"}$${Math.abs(delta).toLocaleString("en-CA")}`;
+  return (
+    <span
+      className="text-[13px] font-semibold tabular-nums"
+      style={{ color: positive ? "#148749" : "#D94343" }}
+    >
+      {formatted}
+    </span>
+  );
 }
 
 const PROVINCE_OPTIONS = [
@@ -54,20 +69,31 @@ function formatCurrency(value: number): string {
 export default function HomeScreen({
   profile,
   customFunds,
+  appliedSummary,
   onProfileChange,
   onSubmit,
 }: HomeScreenProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState<FinancialProfile>(profile);
   const [tfsaExpanded, setTfsaExpanded] = useState(false);
+  const [chequingExpanded, setChequingExpanded] = useState(false);
   const [editSection, setEditSection] = useState<"income" | "accounts" | "expenses">("income");
+  const [summaryVisible, setSummaryVisible] = useState(true);
+  const [showPromptOverlay, setShowPromptOverlay] = useState(false);
+
 
   const p = profile;
+  const totalBalance =
+    p.chequingBalance + p.savingsBalance + p.tfsaBalance +
+    p.rrspBalance + p.fhsaBalance + p.nonRegBalance +
+    customFunds.reduce((sum, f) => sum + f.balance, 0);
+  const showSummary = summaryVisible && !!appliedSummary && appliedSummary.actions.length > 0;
 
   const startEdit = useCallback(() => {
     setDraft(profile);
     setIsEditing(true);
     setEditSection("income");
+    setSummaryVisible(false);
   }, [profile]);
 
   const saveEdit = useCallback(() => {
@@ -98,20 +124,65 @@ export default function HomeScreen({
             transition={{ duration: 0.3, ease: "easeOut" }}
             className="flex flex-col gap-2.5"
           >
-            <div className="flex justify-between items-center mb-1 px-1">
-              <h2 className="text-[28px] font-bold tracking-tight text-[var(--ws-text-primary)]">Accounts</h2>
+            <div className="flex justify-between items-start mb-6 px-1 mt-4">
+              <div className="flex flex-col">
+                <span className="text-[14px] font-medium text-[var(--ws-text-secondary)] mb-1">Total balance</span>
+                <h2 className="text-[40px] leading-none font-serif tracking-tight text-[var(--ws-text-primary)]">
+                  {formatCurrency(totalBalance)}
+                </h2>
+              </div>
               <button
                 type="button"
                 onClick={startEdit}
-                className="w-8 h-8 rounded-full border border-[var(--ws-border)] bg-[var(--ws-bg-surface)] flex items-center justify-center text-[var(--ws-text-secondary)] shadow-sm hover:bg-[var(--ws-bg-primary)] transition-colors"
+                className="w-10 h-10 rounded-full bg-[var(--ws-bg-surface)] border border-[var(--ws-border)] flex items-center justify-center text-[var(--ws-text-secondary)] hover:text-[var(--ws-text-primary)] transition-colors cursor-pointer"
                 aria-label="Edit accounts"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 20H21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M16.5 3.50023C16.8978 3.1024 17.4374 2.87891 18 2.87891C18.2786 2.87891 18.5544 2.93378 18.8118 3.04038C19.0692 3.14699 19.303 3.30324 19.5 3.50023C19.697 3.69721 19.8532 3.93106 19.9598 4.18843C20.0665 4.4458 20.1213 4.72165 20.1213 5.00023C20.1213 5.2788 20.0665 5.55465 19.9598 5.81202C19.8532 6.06939 19.697 6.30324 19.5 6.50023L7 19.0002L3 20.0002L4 16.0002L16.5 3.50023Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                 </svg>
               </button>
             </div>
+
+            {/* Success Banner */}
+            <AnimatePresence>
+              {showSummary && appliedSummary && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.3, ease: "easeOut" }}
+                  className="overflow-hidden"
+                >
+                  <div
+                    className="rounded-[16px] px-4 py-3 shadow-sm border flex items-center justify-between"
+                    style={{
+                      backgroundColor: "rgba(20, 135, 73, 0.08)",
+                      borderColor: "rgba(20, 135, 73, 0.2)",
+                    }}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="flex-shrink-0">
+                        <path d="M20 6L9 17L4 12" stroke="#148749" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      <span className="text-[14px] font-semibold" style={{ color: "#148749" }}>
+                        Done
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSummaryVisible(false)}
+                      className="w-6 h-6 rounded-full flex items-center justify-center hover:bg-black/5 transition-colors cursor-pointer"
+                      aria-label="Dismiss"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                        <path d="M18 6L6 18M6 6L18 18" stroke="#148749" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Credit Card Card */}
             <div className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex items-center justify-between cursor-pointer">
@@ -122,22 +193,74 @@ export default function HomeScreen({
                 <span className="text-[17px] font-semibold text-[var(--ws-text-primary)]">Credit card</span>
               </div>
               <div className="flex flex-col items-end">
-                <span className="text-[17px] font-bold text-[var(--ws-text-primary)]">$853.37</span>
+                <span className="text-[17px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.creditCardBalance)}</span>
                 <span className="text-[13px] font-bold text-[#148749] tracking-tight">+$57.64 cash back</span>
               </div>
             </div>
 
-            {/* Chequing Card */}
-            <div className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex items-center justify-between cursor-pointer">
-              <span className="text-[17px] font-semibold text-[var(--ws-text-secondary)]">Chequing</span>
-              <div className="flex items-center gap-2">
-                <span className="text-[17px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.chequingBalance)}</span>
-                <div className="w-7 h-7 rounded-full bg-[var(--ws-bg-primary)] flex items-center justify-center text-[var(--ws-text-primary)]">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
+            {/* Chequing Collapsible Card */}
+            <div
+              className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex flex-col cursor-pointer transition-all duration-300"
+              onClick={() => setChequingExpanded(!chequingExpanded)}
+            >
+              <div className={`flex items-center justify-between transition-all duration-300 ${chequingExpanded ? "mb-4" : ""}`}>
+                <span className="text-[17px] font-semibold text-[var(--ws-text-secondary)]">Chequing</span>
+                <div className="flex flex-col items-end">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[17px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.chequingBalance)}</span>
+                    <div className="w-7 h-7 rounded-[8px] bg-[#32302F] flex items-center justify-center text-[var(--ws-text-primary)] transition-transform duration-300">
+                      {chequingExpanded ? (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="rotate-180 transition-transform">
+                          <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      ) : (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="transition-transform">
+                          <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </div>
+                  </div>
+                  {showSummary && appliedSummary?.balanceChanges.chequingBalance && (
+                    <BalanceChange delta={appliedSummary.balanceChanges.chequingBalance} />
+                  )}
                 </div>
               </div>
+
+              <AnimatePresence>
+                {chequingExpanded && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2, ease: "easeInOut" }}
+                    className="overflow-hidden"
+                  >
+                    <div className="flex flex-col gap-4 mt-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex flex-col">
+                          <span className="text-[20px] mb-1">{"\u{1F4B3}"}</span>
+                          <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">Main Chequing</span>
+                        </div>
+                        <div className="flex flex-col items-end">
+                          <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.chequingBalance * 0.85)}</span>
+                          <span className="text-[13px] text-[var(--ws-text-tertiary)]">Everyday spending</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <div className="flex flex-col">
+                          <span className="text-[20px] mb-1">{"\u{1F3E6}"}</span>
+                          <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">Joint Account</span>
+                        </div>
+                        <div className="flex flex-col items-end">
+                          <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.chequingBalance * 0.15)}</span>
+                          <span className="text-[13px] text-[var(--ws-text-tertiary)]">Shared expenses</span>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
             {/* USD Savings Card */}
@@ -146,7 +269,12 @@ export default function HomeScreen({
                 <span className="text-[18px]" role="img" aria-label="US Flag">{"\uD83C\uDDFA\uD83C\uDDF8"}</span>
                 <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">USD savings</span>
               </div>
-              <span className="text-[17px] font-bold text-[var(--ws-text-primary)] pb-0.5">{formatCurrency(p.savingsBalance)} USD</span>
+              <div className="flex flex-col items-end">
+                <span className="text-[17px] font-bold text-[var(--ws-text-primary)] pb-0.5">{formatCurrency(p.savingsBalance)} USD</span>
+                {showSummary && appliedSummary?.balanceChanges.savingsBalance && (
+                  <BalanceChange delta={appliedSummary.balanceChanges.savingsBalance} />
+                )}
+              </div>
             </div>
 
             {/* TFSA Collapsible Card */}
@@ -156,19 +284,24 @@ export default function HomeScreen({
             >
               <div className={`flex items-center justify-between transition-all duration-300 ${tfsaExpanded ? "mb-4" : ""}`}>
                 <span className="text-[17px] font-semibold text-[var(--ws-text-secondary)]">TFSA</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-[17px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.tfsaBalance)}</span>
-                  <div className="w-7 h-7 rounded-full bg-[var(--ws-bg-primary)] flex items-center justify-center text-[var(--ws-text-primary)] border border-[var(--ws-border)]">
-                    {tfsaExpanded ? (
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M18 15L12 9L6 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    ) : (
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    )}
+                <div className="flex flex-col items-end">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[17px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.tfsaBalance)}</span>
+                    <div className="w-7 h-7 rounded-[8px] bg-[#32302F] flex items-center justify-center text-[var(--ws-text-primary)] transition-transform duration-300">
+                      {tfsaExpanded ? (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="rotate-180 transition-transform">
+                          <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      ) : (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="transition-transform">
+                          <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </div>
                   </div>
+                  {showSummary && appliedSummary?.balanceChanges.tfsaBalance && (
+                    <BalanceChange delta={appliedSummary.balanceChanges.tfsaBalance} />
+                  )}
                 </div>
               </div>
 
@@ -230,8 +363,11 @@ export default function HomeScreen({
                 <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">FHSA</span>
               </div>
               <div className="flex flex-col items-end">
-                <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.fhsaBalance || 5253.27)}</span>
+                <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.fhsaBalance)}</span>
                 <span className="text-[13px] font-bold text-[#148749] tracking-tight">+5.07% all time</span>
+                {showSummary && appliedSummary?.balanceChanges.fhsaBalance && (
+                  <BalanceChange delta={appliedSummary.balanceChanges.fhsaBalance} />
+                )}
               </div>
             </div>
 
@@ -247,25 +383,45 @@ export default function HomeScreen({
               <div className="flex flex-col items-end">
                 <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.rrspBalance)}</span>
                 <span className="text-[13px] font-bold text-[#148749] tracking-tight">+26.15% all time</span>
+                {showSummary && appliedSummary?.balanceChanges.rrspBalance && (
+                  <BalanceChange delta={appliedSummary.balanceChanges.rrspBalance} />
+                )}
               </div>
             </div>
 
             {/* Custom Funds (created via confirmed actions) */}
-            {customFunds.map((fund, i) => (
-              <motion.div
-                key={fund.name + i}
-                className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex items-end justify-between cursor-pointer"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: 0.05 * i, ease: "easeOut" as const }}
-              >
-                <div className="flex flex-col gap-1">
-                  <span className="text-[20px]">{fund.emoji || "\u{1F4B0}"}</span>
-                  <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">{fund.name}</span>
-                </div>
-                <span className="text-[16px] font-bold text-[var(--ws-text-primary)] pb-0.5">{formatCurrency(fund.balance)}</span>
-              </motion.div>
-            ))}
+            {customFunds.map((fund, i) => {
+              const isNew = showSummary && appliedSummary?.newFundNames.includes(fund.name);
+              const fundDelta = showSummary ? appliedSummary?.fundChanges[fund.name] : undefined;
+              return (
+                <motion.div
+                  key={fund.name + i}
+                  className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex items-end justify-between cursor-pointer"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: 0.05 * i, ease: "easeOut" as const }}
+                >
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[20px]">{fund.emoji || "\u{1F4B0}"}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">{fund.name}</span>
+                      {isNew && (
+                        <span
+                          className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full"
+                          style={{ backgroundColor: "rgba(20, 135, 73, 0.12)", color: "#148749" }}
+                        >
+                          New
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end">
+                    <span className="text-[16px] font-bold text-[var(--ws-text-primary)] pb-0.5">{formatCurrency(fund.balance)}</span>
+                    {fundDelta ? <BalanceChange delta={fundDelta} /> : null}
+                  </div>
+                </motion.div>
+              );
+            })}
           </motion.div>
         ) : (
           /* ── EDIT MODE ── */
@@ -306,11 +462,10 @@ export default function HomeScreen({
                 <button
                   key={tab}
                   onClick={() => setEditSection(tab)}
-                  className={`flex-1 text-[12px] font-bold py-1.5 rounded-full capitalize transition-all duration-200 ${
-                    editSection === tab
-                      ? "text-[var(--ws-text-primary)] shadow-sm bg-[var(--ws-bg-surface)]"
-                      : "text-[#88837E] hover:text-[var(--ws-text-primary)]"
-                  }`}
+                  className={`flex-1 text-[12px] font-bold py-1.5 rounded-full capitalize transition-all duration-200 ${editSection === tab
+                    ? "text-[var(--ws-text-primary)] shadow-sm bg-[var(--ws-bg-surface)]"
+                    : "text-[#88837E] hover:text-[var(--ws-text-primary)]"
+                    }`}
                 >
                   {tab}
                 </button>
@@ -370,7 +525,7 @@ export default function HomeScreen({
                   className="bg-[var(--ws-bg-surface)] rounded-[20px] border border-[var(--ws-border)] p-5 shadow-sm"
                 >
                   <p className="text-[11px] font-semibold text-[var(--ws-text-tertiary)] uppercase tracking-wider mb-4">
-                    Drag sliders to match your balances
+                    Account Balances
                   </p>
                   <div className="flex flex-col gap-4">
                     <RangeSlider
@@ -396,7 +551,7 @@ export default function HomeScreen({
                     />
                     <RangeSlider
                       label="FHSA"
-                      value={draft.fhsaBalance || 0}
+                      value={draft.fhsaBalance}
                       min={0} max={60000} step={500}
                       onChange={(v) => updateField("fhsaBalance", v)}
                       formatValue={formatCurrency}
@@ -426,6 +581,11 @@ export default function HomeScreen({
                         />
                       </div>
                     </div>
+                    <CurrencyInput
+                      label="Credit Card Balance"
+                      value={draft.creditCardBalance}
+                      onChange={(v) => updateField("creditCardBalance", v)}
+                    />
                     <CurrencyInput
                       label="Non-Registered"
                       value={draft.nonRegBalance}
@@ -504,9 +664,66 @@ export default function HomeScreen({
         )}
       </AnimatePresence>
 
-      <div className="flex-1 mt-1">
-        <PromptInput onSubmit={onSubmit} chips={SUGGESTION_CHIPS} />
-      </div>
+      {/* Floating Action Button (FAB) + Bottom Sheet Overlay */}
+      <AnimatePresence>
+        {!showPromptOverlay && !isEditing && (
+          <motion.div
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 260, damping: 20 }}
+            className="fixed bottom-6 right-6 sm:bottom-10 sm:right-10 z-40 flex flex-col items-center gap-2"
+          >
+            <button
+              type="button"
+              onClick={() => setShowPromptOverlay(true)}
+              className="w-14 h-14 rounded-full bg-[var(--ws-text-primary)] text-[var(--ws-bg-primary)] shadow-[0_8px_30px_rgb(0,0,0,0.5)] border border-[var(--ws-text-primary)]/20 flex flex-col items-center justify-center cursor-pointer hover:scale-105 active:scale-95 transition-transform group"
+              aria-label="Open Pathfinder"
+            >
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3v5" />
+                <path d="M12 16v5" />
+                <path d="M3 12h5" />
+                <path d="M16 12h5" />
+                <path d="M6 6l3.5 3.5" />
+                <path d="M14.5 15.5l3.5 3.5" />
+                {/* Winding path tweak cutting through */}
+                <path d="M5 19 L 10 14 C 12 12, 12 12, 14 10 L 19 5" />
+              </svg>
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showPromptOverlay && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+              onClick={() => setShowPromptOverlay(false)}
+            />
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 28, stiffness: 220 }}
+              className="fixed bottom-0 left-0 right-0 z-50 flex flex-col justify-end w-full max-w-5xl mx-auto"
+            >
+              <PromptInput
+                onSubmit={(val) => {
+                  setShowPromptOverlay(false);
+                  onSubmit(val);
+                }}
+                chips={SUGGESTION_CHIPS}
+              />
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

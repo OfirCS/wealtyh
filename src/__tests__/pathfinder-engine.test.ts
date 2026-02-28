@@ -42,6 +42,7 @@ const PROFILE_A: FinancialProfile = {
   essentialExpenses: 1800,
   discretionarySpending: 800,
   debtPayments: 400,
+  creditCardBalance: 853.37,
 };
 
 const PROFILE_B: FinancialProfile = {
@@ -63,6 +64,7 @@ const PROFILE_B: FinancialProfile = {
   essentialExpenses: 1500,
   discretionarySpending: 600,
   debtPayments: 200,
+  creditCardBalance: 0,
 };
 
 // ── Unit: stripMarkdownFences ────────────────────────────────────────────────
@@ -148,6 +150,7 @@ describe('routeQuery (live AI)', () => {
       ai,
       PROFILE_A,
       'I want to max out my TFSA this year',
+      [],
     );
     expect(result.needs_search).toBe(false);
     expect(result.queries).toHaveLength(0);
@@ -158,6 +161,7 @@ describe('routeQuery (live AI)', () => {
       ai,
       PROFILE_A,
       'I want to buy a condo in downtown Toronto for $700K',
+      [],
     );
     expect(result.needs_search).toBe(true);
     expect(result.queries.length).toBeGreaterThan(0);
@@ -169,6 +173,7 @@ describe('routeQuery (live AI)', () => {
       ai,
       PROFILE_B,
       'I want to quit my job and open a coffee shop in Vancouver',
+      [],
     );
     expect(result.needs_search).toBe(true);
     expect(result.queries.length).toBeGreaterThan(0);
@@ -216,6 +221,7 @@ describe('generatePlan (live AI)', () => {
       PROFILE_A,
       'I want to max out my TFSA and RRSP this year',
       null,
+      [],
     );
 
     // Structure checks
@@ -251,6 +257,7 @@ describe('generatePlan (live AI)', () => {
       PROFILE_B,
       'I want to take a year off to travel',
       null,
+      [],
     );
 
     const allText = JSON.stringify(result);

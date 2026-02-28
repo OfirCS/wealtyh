@@ -40,7 +40,7 @@ export default function RangeSlider({
                 step={step}
                 value={value}
                 onChange={handleChange}
-                className="w-full h-1.5 bg-[#D6D2CC] rounded-full appearance-none cursor-pointer accent-[#2A2826] outline-none"
+                className="w-full h-1.5 bg-[var(--ws-border)] rounded-full appearance-none cursor-pointer accent-[var(--ws-text-primary)] outline-none"
             />
         </div>
     );

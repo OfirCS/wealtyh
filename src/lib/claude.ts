@@ -1,4 +1,4 @@
-import type { FinancialProfile, PathfinderResult, SearchMetadata } from './types';
+import type { FinancialProfile, CustomFund, PathfinderResult, SearchMetadata } from './types';
 
 export interface PathfinderResponse {
   result: PathfinderResult;
@@ -8,11 +8,12 @@ export interface PathfinderResponse {
 export async function callPathfinder(
   profile: FinancialProfile,
   lifeEvent: string,
+  customFunds: CustomFund[] = [],
 ): Promise<PathfinderResponse> {
   const response = await fetch('/api/pathfinder', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ profile, lifeEvent }),
+    body: JSON.stringify({ profile, lifeEvent, customFunds }),
   });
 
   const data = await response.json();

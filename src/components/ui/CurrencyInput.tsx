@@ -74,7 +74,7 @@ export default function CurrencyInput({
           onFocus={handleFocus}
           onBlur={handleBlur}
           onChange={handleChange}
-          className="w-full rounded-[8px] border border-[var(--ws-border)] bg-[var(--ws-bg-surface)] py-3 pl-8 pr-4 text-right text-[15px] text-[var(--ws-text-primary)] placeholder:text-[var(--ws-text-tertiary)] focus:border-[var(--ws-text-tertiary)] focus:outline-none transition-colors"
+          className="w-full rounded-[8px] border border-[var(--ws-border)] bg-[var(--ws-bg-primary)] py-3 pl-8 pr-4 text-right text-[15px] text-[var(--ws-text-primary)] placeholder:text-[var(--ws-text-tertiary)] focus:border-[var(--ws-text-primary)] focus:outline-none transition-colors"
         />
       </div>
     </div>

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runPathfinder } from '@/lib/pathfinder-engine';
-import type { FinancialProfile } from '@/lib/types';
+import type { FinancialProfile, CustomFund } from '@/lib/types';
 
 interface PathfinderRequestBody {
   profile: FinancialProfile;
   lifeEvent: string;
+  customFunds?: CustomFund[];
 }
 
 export async function POST(request: NextRequest) {
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { result, searchMetadata } = await runPathfinder(body.profile, body.lifeEvent);
+    const { result, searchMetadata } = await runPathfinder(body.profile, body.lifeEvent, body.customFunds ?? []);
     return NextResponse.json({ result, searchMetadata });
   } catch (error) {
     const message =

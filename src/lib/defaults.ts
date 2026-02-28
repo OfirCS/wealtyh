@@ -1,6 +1,8 @@
 import type { FinancialProfile, SuggestionChip } from './types';
 
-// ===== Default Financial Profile (editable starting values) =====
+// ===== Default Financial Profile =====
+// Represents an existing Wealthsimple user with active accounts.
+// These values are pre-populated as if pulled from the user's real accounts.
 
 export const DEFAULT_PROFILE: FinancialProfile = {
   annualIncome: 85000,
@@ -14,7 +16,7 @@ export const DEFAULT_PROFILE: FinancialProfile = {
   tfsaRoom: 7000,
   rrspBalance: 22000,
   rrspRoom: 15200,
-  fhsaBalance: 0,
+  fhsaBalance: 5250,
   nonRegBalance: 8000,
 
   housingType: 'rent',
@@ -24,6 +26,7 @@ export const DEFAULT_PROFILE: FinancialProfile = {
   essentialExpenses: 1800,
   discretionarySpending: 800,
   debtPayments: 400,
+  creditCardBalance: 853.37,
 };
 
 // ===== Suggestion Chips =====

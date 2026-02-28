@@ -1,0 +1,159 @@
+{
+  "result": {
+    "thinking_steps": [
+      {
+        "title": "Analyzing account balances",
+        "insights": [
+          { "text": "$48,150 across 5 accounts — solid starting position", "type": "positive" },
+          { "text": "FHSA has $6,400 — room to max $8K annual contribution", "type": "positive" }
+        ]
+      },
+      {
+        "title": "Searching current mortgage rates & parental leave benefits",
+        "insights": [
+          { "text": "Current 5-year fixed rates around 4.29%", "type": "neutral" },
+          { "text": "EI parental benefits: ~$668/week for 12 months", "type": "neutral" }
+        ]
+      },
+      {
+        "title": "Calculating parental leave income impact",
+        "insights": [
+          { "text": "Household income drops ~42% during leave period", "type": "negative" },
+          { "text": "Monthly shortfall of ~$1,430 vs current spending", "type": "negative" }
+        ]
+      },
+      {
+        "title": "Simulating $650K home purchase scenario",
+        "insights": [
+          { "text": "FHSA + savings can cover 10% down payment", "type": "positive" },
+          { "text": "Monthly mortgage ~$3,200 at current rates", "type": "neutral" }
+        ]
+      },
+      {
+        "title": "Generating personalized plan",
+        "insights": [
+          { "text": "3 actions identified to optimize this transition", "type": "positive" },
+          { "text": "Net worth projected to increase $180K over 18 months", "type": "positive" }
+        ]
+      }
+    ],
+    "impact_summary": {
+      "income_change": {
+        "value": "-42%",
+        "label": "Income during parental leave",
+        "type": "negative"
+      },
+      "expense_change": {
+        "value": "+35%",
+        "label": "Expenses with baby + mortgage",
+        "type": "negative"
+      },
+      "net_worth_change": {
+        "value": "+$180K",
+        "label": "Net worth in 18 months",
+        "type": "positive"
+      },
+      "timeline": {
+        "value": "18 months",
+        "label": "Until financial recovery",
+        "type": "neutral"
+      }
+    },
+    "quick_actions": [
+      {
+        "title": "Move $8,000 from Savings to Baby Fund",
+        "why": "Covers 6 months of baby expenses before parental leave ends. Creates a dedicated buffer so your emergency savings stay intact.",
+        "type": "create_fund",
+        "amount": 8000,
+        "from_account": "Savings",
+        "to_account": "Baby Fund",
+        "priority": "do_now"
+      },
+      {
+        "title": "Max FHSA — contribute $1,600",
+        "why": "Tax-deductible savings for your first home. You have $6,400 — topping up to $8,000 saves ~$480 in taxes this year.",
+        "type": "move",
+        "amount": 1600,
+        "from_account": "Chequing",
+        "to_account": "FHSA",
+        "priority": "this_week"
+      },
+      {
+        "title": "Auto-deposit $500/mo to Emergency Fund",
+        "why": "Rebuilds your buffer during the income transition. Stops automatically when you hit $10,000.",
+        "type": "automate",
+        "amount": 500,
+        "from_account": "Chequing",
+        "to_account": "Savings",
+        "automation": {
+          "amount": 500,
+          "frequency": "monthly",
+          "duration_months": 12,
+          "target_amount": 10000
+        },
+        "priority": "this_month"
+      }
+    ],
+    "advisor_flags": [
+      {
+        "title": "Get mortgage pre-approved before parental leave starts",
+        "explanation": "Lenders assess income at application time. Once your partner goes on leave, qualifying for $650K becomes significantly harder. Apply now while both incomes are active.",
+        "urgency": "high"
+      }
+    ],
+    "risk_warnings": [
+      {
+        "text": "Savings will dip below $10K during months 7-10 of parental leave. The auto-deposit helps rebuild this.",
+        "severity": "medium"
+      }
+    ],
+    "account_impacts": [
+      {
+        "account_name": "Savings",
+        "current_balance": 18000,
+        "projected_balance": 10000,
+        "impact_text": "Baby fund creation reduces balance, auto-deposits rebuild over 12 months",
+        "status": "warning"
+      },
+      {
+        "account_name": "TFSA",
+        "current_balance": 12500,
+        "projected_balance": 14500,
+        "impact_text": "Continues growing with existing contributions",
+        "status": "positive"
+      },
+      {
+        "account_name": "FHSA",
+        "current_balance": 6400,
+        "projected_balance": 14400,
+        "impact_text": "Maxed this year + next year's contribution toward home purchase",
+        "status": "positive"
+      },
+      {
+        "account_name": "Chequing",
+        "current_balance": 3250,
+        "projected_balance": 2800,
+        "impact_text": "Slight dip from FHSA top-up, stabilizes after",
+        "status": "neutral"
+      }
+    ],
+    "monthly_cashflow": [
+      { "phase": "Current", "amount": 1850 },
+      { "phase": "Parental Leave", "amount": 420 },
+      { "phase": "Post-Leave", "amount": 1200 },
+      { "phase": "With Mortgage", "amount": 650 }
+    ]
+  },
+  "searchMetadata": {
+    "queries": [
+      "Canada 5-year fixed mortgage rates 2026",
+      "EI parental leave benefits Ontario 2026",
+      "FHSA contribution limits and home purchase rules"
+    ],
+    "sources": [
+      { "title": "RateHub - Current Mortgage Rates", "url": "https://www.ratehub.ca/best-mortgage-rates" },
+      { "title": "Government of Canada - EI Benefits", "url": "https://www.canada.ca/en/services/benefits/ei/ei-maternity-parental.html" },
+      { "title": "CRA - First Home Savings Account", "url": "https://www.canada.ca/en/revenue-agency/services/tax/individuals/topics/first-home-savings-account.html" }
+    ]
+  }
+}

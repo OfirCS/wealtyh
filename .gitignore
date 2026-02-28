@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# demo-video
+demo-video/node_modules
+demo-video/out
+demo-video/public/capture.webm
+
+# playwright
+test-results/

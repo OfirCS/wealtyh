@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import type { AccountImpact } from "@/lib/types";
+import { CountUp } from "@/components/ui/CountUp";
 
 interface AccountImpactCardsProps {
   impacts: AccountImpact[];
@@ -40,52 +41,63 @@ function formatAmount(amount: number): string {
 }
 
 export default function AccountImpactCards({ impacts }: AccountImpactCardsProps) {
-  if (!impacts || impacts.length === 0) return null;
+  const changedImpacts = impacts?.filter(
+    (impact) => impact.current_balance !== impact.projected_balance
+  );
+
+  if (!changedImpacts || changedImpacts.length === 0) return null;
 
   return (
-    <div className="mb-4">
+    <div className="mb-8">
       <p className="text-[11px] text-[var(--ws-text-tertiary)] uppercase tracking-wider font-semibold mb-3">
-        Your accounts after
+        Projected Account Impact
       </p>
-      <div className="flex flex-col gap-4">
-        {impacts.map((impact, i) => {
+      <div className="flex flex-row overflow-x-auto snap-x hide-scrollbar gap-4 pb-4 -mx-4 px-4 sm:-mx-10 sm:px-10">
+        {changedImpacts.map((impact, i) => {
           const color = getStatusColor(impact.status);
           const diff = impact.projected_balance - impact.current_balance;
           const diffStr = diff >= 0 ? `+${formatAmount(diff)}` : `-${formatAmount(Math.abs(diff))}`;
+          const isNeutral = impact.status === "neutral";
 
           return (
             <motion.div
               key={i}
-              className="bg-[var(--ws-bg-surface)] rounded-[20px] border border-[#DDD8D1] p-4 shadow-[0_1px_2px_rgba(42,39,36,0.08)]"
-              initial={{ opacity: 0, y: 8 }}
+              className={`min-w-[280px] sm:min-w-[320px] max-w-[320px] snap-center shrink-0 bg-[var(--ws-bg-surface)] rounded-[16px] sm:rounded-[20px] p-4 sm:p-5 border flex flex-col gap-2.5 relative overflow-hidden transition-all hover:border-[var(--ws-border-hover)] ${isNeutral ? "border-[var(--ws-border)] opacity-80" : "border-[var(--ws-border)] shadow-sm"
+                }`}
+              initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, ease: "easeOut" as const, delay: 0.1 + i * 0.06 }}
+              transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1], delay: 0.1 + i * 0.1 }}
             >
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2.5">
-                  <div
-                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: color }}
-                  />
-                  <span className="text-[16px] font-semibold text-[var(--ws-text-primary)] tracking-[-0.01em]">
-                    {impact.account_name}
-                  </span>
-                </div>
+              {/* Subtle accent line on top */}
+              {!isNeutral && (
+                <div
+                  className="absolute top-0 left-0 right-0 h-[2px] opacity-30"
+                  style={{ backgroundColor: color }}
+                />
+              )}
+
+              {/* Header: Name and Label */}
+              <div className="flex flex-wrap items-center justify-between gap-2 mt-0.5 sm:mt-1">
+                <span className="text-[14px] sm:text-[15px] font-medium text-[var(--ws-text-primary)]">
+                  {impact.account_name}
+                </span>
                 <span
-                  className="text-[11px] font-semibold px-2.5 py-1 rounded-full"
-                  style={{ backgroundColor: `${color}15`, color }}
+                  className="text-[10px] sm:text-[11px] font-medium px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full bg-[var(--ws-bg-primary)] border"
+                  style={{ color, borderColor: `${color}30` }}
                 >
                   {getStatusLabel(impact.status)}
                 </span>
               </div>
 
-              {/* Balance change row */}
-              <div className="flex items-baseline gap-2 mb-1">
-                <span className="text-[21px] font-semibold text-[var(--ws-text-primary)] tabular-nums tracking-[-0.02em]">
-                  {formatAmount(impact.projected_balance)}
+              <div className="w-full h-px bg-[var(--ws-border)] my-0.5 sm:my-1 border-dashed"></div>
+
+              {/* Main Balance Row */}
+              <div className="flex flex-wrap items-baseline gap-2 sm:gap-3">
+                <span className="font-serif text-[28px] sm:text-[38px] leading-tight tracking-tight text-[var(--ws-text-primary)]">
+                  <CountUp value={impact.projected_balance} formatFn={formatAmount} duration={1.2} />
                 </span>
                 <span
-                  className="text-[13px] font-semibold tabular-nums"
+                  className="font-serif text-[16px] sm:text-[20px] tracking-tight"
                   style={{ color }}
                 >
                   {diffStr}
@@ -93,15 +105,19 @@ export default function AccountImpactCards({ impacts }: AccountImpactCardsProps)
               </div>
 
               {/* Impact text */}
-              <p className="text-[13px] text-[var(--ws-text-secondary)] leading-snug">
-                {impact.impact_text}
-              </p>
+              <div>
+                <p className="text-[13px] sm:text-[14px] text-[var(--ws-text-secondary)] leading-relaxed">
+                  {impact.impact_text}
+                </p>
+              </div>
 
               {/* Note */}
               {impact.note && (
-                <p className="text-[12px] text-[var(--ws-text-tertiary)] mt-2 pl-3 border-l-2 border-[var(--ws-border)]">
-                  {impact.note}
-                </p>
+                <div className="mt-0.5 sm:mt-1 bg-[var(--ws-bg-primary)] rounded-[10px] sm:rounded-xl py-2 px-3 sm:py-2.5 sm:px-3.5 border border-[var(--ws-border)] border-dashed">
+                  <p className="text-[12px] sm:text-[13px] text-[var(--ws-text-tertiary)] leading-snug">
+                    <span className="font-semibold text-[var(--ws-text-secondary)]">Note:</span> {impact.note}
+                  </p>
+                </div>
               )}
             </motion.div>
           );

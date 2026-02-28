@@ -7,28 +7,46 @@ interface ThinkingProgressProps {
 }
 
 export default function ThinkingProgress({ progress }: ThinkingProgressProps) {
+  const radius = 24;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (progress / 100) * circumference;
+
   return (
-    <div className="w-full">
-      {/* Thin progress bar */}
-      <div
-        className="w-full h-[3px] rounded-full overflow-hidden"
-        style={{ backgroundColor: "var(--ws-bg-surface)" }}
-      >
-        <motion.div
-          className="h-full rounded-full"
-          style={{ backgroundColor: "var(--ws-accent-yellow)" }}
-          initial={{ width: "0%" }}
-          animate={{ width: `${progress}%` }}
-          transition={{ duration: 0.3, ease: "easeOut" }}
-        />
+    <div className="w-full flex flex-col items-center justify-center mt-6">
+      <div className="relative flex items-center justify-center w-[80px] h-[80px]">
+        {/* Background Tracker */}
+        <svg className="absolute w-full h-full transform -rotate-90" viewBox="0 0 60 60">
+          <circle
+            cx="30"
+            cy="30"
+            r={radius}
+            stroke="var(--ws-border)"
+            strokeWidth="3"
+            fill="transparent"
+          />
+          {/* Active Progress */}
+          <motion.circle
+            cx="30"
+            cy="30"
+            r={radius}
+            stroke="var(--ws-text-primary)"
+            strokeWidth="3"
+            strokeLinecap="round"
+            fill="transparent"
+            initial={{ strokeDasharray: circumference, strokeDashoffset: circumference }}
+            animate={{ strokeDashoffset: offset }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+          />
+        </svg>
+        {/* Percentage Text */}
+        <span className="font-serif text-[18px] text-[var(--ws-text-primary)] font-medium tabular-nums shadow-sm">
+          {Math.round(progress)}%
+        </span>
       </div>
 
       {/* Status text */}
-      <p
-        className="text-[13px] text-center mt-3"
-        style={{ color: "var(--ws-text-tertiary)" }}
-      >
-        Almost there...
+      <p className="text-[14px] text-center mt-4 font-medium" style={{ color: "var(--ws-text-secondary)" }}>
+        {progress < 100 ? "Finalizing your path..." : "Finishing up..."}
       </p>
     </div>
   );

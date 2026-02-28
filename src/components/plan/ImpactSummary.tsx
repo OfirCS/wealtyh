@@ -30,11 +30,11 @@ function valueColor(type: ImpactCard["type"]): string {
 function bgGlow(type: ImpactCard["type"]): string {
   switch (type) {
     case "positive":
-      return "bg-[#EAF8F0]";
+      return "bg-[rgba(45,229,137,0.05)] border-[var(--ws-accent-green)]/20";
     case "negative":
-      return "bg-[#FCEEEE]";
+      return "bg-[rgba(210,58,58,0.05)] border-[var(--ws-accent-red)]/20";
     case "neutral":
-      return "bg-[var(--ws-bg-surface)]";
+      return "bg-[var(--ws-bg-surface)] border-[var(--ws-border)] opacity-80";
   }
 }
 
@@ -51,27 +51,34 @@ function ImpactCardComponent({
 
   return (
     <motion.div
-      className={`rounded-[18px] p-4 border border-[#DDD8D1] shadow-[0_1px_2px_rgba(42,39,36,0.08)] ${bgGlow(card.type)}`}
-      initial={{ opacity: 0, y: 10 }}
+      className={`rounded-[16px] sm:rounded-[20px] p-4 sm:p-5 border ${bgGlow(card.type)}`}
+      initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{
-        duration: 0.35,
-        ease: "easeOut" as const,
-        delay: 0.15 + index * 0.08,
+        duration: 0.4,
+        ease: [0.25, 0.1, 0.25, 1],
+        delay: 0.1 + index * 0.08,
       }}
     >
-      <div className="flex items-center gap-1.5 mb-2">
-        <span className="text-[12px] font-semibold w-4 text-center text-[var(--ws-text-secondary)]">{meta.icon}</span>
-        <p className="text-[var(--ws-text-tertiary)] uppercase text-[10px] tracking-[0.08em] font-semibold">
-          {meta.label}
-        </p>
+      <div className="flex flex-col h-full justify-between gap-3 sm:gap-4">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[var(--ws-bg-primary)] border border-[var(--ws-border)] flex items-center justify-center text-[11px] sm:text-[13px] text-[var(--ws-text-primary)] shadow-sm">
+            {meta.icon}
+          </div>
+          <p className="text-[var(--ws-text-secondary)] uppercase text-[10px] sm:text-[11px] tracking-wider font-medium">
+            {meta.label}
+          </p>
+        </div>
+
+        <div>
+          <p className={`font-serif text-[24px] sm:text-[32px] leading-tight tracking-tight ${valueColor(card.type)} mb-0.5 sm:mb-1`}>
+            {card.value}
+          </p>
+          <p className="text-[var(--ws-text-tertiary)] text-[12px] sm:text-[13px] leading-relaxed">
+            {card.label}
+          </p>
+        </div>
       </div>
-      <p className={`text-[24px] font-semibold leading-tight tracking-[-0.02em] ${valueColor(card.type)}`}>
-        {card.value}
-      </p>
-      <p className="text-[var(--ws-text-secondary)] text-[12px] mt-1">
-        {card.label}
-      </p>
     </motion.div>
   );
 }

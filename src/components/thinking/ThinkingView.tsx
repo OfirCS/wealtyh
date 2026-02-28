@@ -2,13 +2,14 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import type { FinancialProfile, PathfinderResult, SearchMetadata } from "@/lib/types";
+import type { FinancialProfile, CustomFund, PathfinderResult, SearchMetadata } from "@/lib/types";
 import { callPathfinder } from "@/lib/claude";
 import ThinkingStep from "./ThinkingStep";
 import ThinkingProgress from "./ThinkingProgress";
 
 interface ThinkingViewProps {
   profile: FinancialProfile;
+  customFunds: CustomFund[];
   event: string;
   onComplete: (result: PathfinderResult, searchMetadata: SearchMetadata | null) => void;
   onError: (message: string) => void;
@@ -80,6 +81,7 @@ const delay = (ms: number) =>
 
 export default function ThinkingView({
   profile,
+  customFunds,
   event,
   onComplete,
   onError,
@@ -99,7 +101,7 @@ export default function ThinkingView({
 
   const runSequence = useCallback(async () => {
     // Fire API call in parallel
-    const apiPromise = callPathfinder(profile, event)
+    const apiPromise = callPathfinder(profile, event, customFunds)
       .then((response) => {
         apiResult.current = response.result;
         apiSearchMeta.current = response.searchMetadata;
@@ -144,18 +146,19 @@ export default function ThinkingView({
 
     await delay(400);
 
-    // Show progress bar
+    // Show progress bar — cap at 90% until API responds
     setShowProgress(true);
     const totalSteps = PROGRESS_DURATION / PROGRESS_INTERVAL;
-    const increment = 100 / totalSteps;
+    const increment = 90 / totalSteps;
 
     for (let i = 0; i <= totalSteps; i++) {
       await delay(PROGRESS_INTERVAL);
-      setProgress(Math.min(i * increment, 100));
+      setProgress(Math.min(i * increment, 90));
     }
 
-    // Wait for API to finish
+    // Wait for API to finish, then jump to 100%
     await apiPromise;
+    setProgress(100);
 
     await delay(POST_PROGRESS_PAUSE);
 
@@ -165,7 +168,7 @@ export default function ThinkingView({
     } else {
       onError(apiError.current || "Failed to generate financial plan");
     }
-  }, [profile, event, thinkingLines, onComplete, onError]);
+  }, [profile, customFunds, event, thinkingLines, onComplete, onError]);
 
   useEffect(() => {
     if (hasStarted.current) return;
@@ -229,14 +232,11 @@ export default function ThinkingView({
       </motion.p>
 
       {/* Thinking lines */}
-      <div>
+      <div className="flex flex-col gap-1">
         <AnimatePresence mode="sync">
-          {thinkingLines.map(
-            (line, i) =>
-              i <= activeIndex || completedIndices.has(i) ? (
-                <ThinkingStep key={i} text={line} status={getStatus(i)} />
-              ) : null
-          )}
+          {thinkingLines.map((line, i) => (
+            <ThinkingStep key={i} text={line} status={getStatus(i)} />
+          ))}
         </AnimatePresence>
       </div>
 
