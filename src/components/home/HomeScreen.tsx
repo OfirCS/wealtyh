@@ -493,6 +493,35 @@ export default function HomeScreen({
               )}
             </AnimatePresence>
 
+            {/* Non-Registered */}
+            <AnimatePresence>
+              {p.nonRegBalance > 0 && (
+                <motion.div
+                  layout
+                  initial={{ opacity: 0, scale: 0.95, filter: "blur(4px)" }}
+                  animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, scale: 0.9, height: 0, filter: "blur(8px)", marginBottom: 0 }}
+                  transition={{ type: "spring", bounce: 0, duration: 0.5 }}
+                  className="relative group w-full"
+                >
+                  <RemoveButton onRemove={() => onProfileChange({ ...p, nonRegBalance: 0 })} />
+                  <div className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex items-end justify-between cursor-pointer w-full">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[20px]">{"\uD83D\uDCCA"}</span>
+                      <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">Non-Registered</span>
+                    </div>
+                    <div className="flex flex-col items-end">
+                      <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.nonRegBalance)}</span>
+                      <span className="text-[13px] font-bold text-[#148749] tracking-tight">+12.34% all time</span>
+                      {showSummary && appliedSummary?.balanceChanges.nonRegBalance && (
+                        <BalanceChange delta={appliedSummary.balanceChanges.nonRegBalance} />
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* Custom Funds (created via confirmed actions) */}
             <AnimatePresence>
               {customFunds.map((fund, i) => {
