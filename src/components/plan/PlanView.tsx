@@ -476,10 +476,18 @@ function DebugPanel({ log }: { log: DebugLog }) {
   );
 }
 
+const TAB_ORDER = { actions: 0, impacts: 1, cashflow: 2 } as const;
+
 export default function PlanView({ result, event, searchMetadata, debugLog, onReset, onApplyActions }: PlanViewProps) {
   const [activeTab, setActiveTab] = useState<"actions" | "impacts" | "cashflow">("actions");
+  const [tabDirection, setTabDirection] = useState(1);
   const [selectedAction, setSelectedAction] = useState<QuickAction | null>(null);
   const [confirmedActions, setConfirmedActions] = useState<Set<number>>(new Set());
+
+  const handleTabChange = (tab: "actions" | "impacts" | "cashflow") => {
+    setTabDirection(TAB_ORDER[tab] > TAB_ORDER[activeTab] ? 1 : -1);
+    setActiveTab(tab);
+  };
 
   const handleActionConfirm = () => {
     if (selectedAction) {
@@ -493,12 +501,7 @@ export default function PlanView({ result, event, searchMetadata, debugLog, onRe
 
   return (
     <>
-      <motion.div
-        className="pb-20"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ type: "spring", bounce: 0, duration: 0.6 }}
-      >
+      <div className="pb-20">
         <div className="mx-auto max-w-5xl w-full">
           {/* Sticky Header */}
           <div className="sticky top-[60px] z-40 bg-[var(--ws-bg-primary)] px-4 sm:px-10 pt-4 sm:pt-8 pb-3 sm:pb-4 border-b border-[var(--ws-border)]">
@@ -517,7 +520,7 @@ export default function PlanView({ result, event, searchMetadata, debugLog, onRe
               {(["actions", "impacts", "cashflow"] as const).map((tab) => (
                 <button
                   key={tab}
-                  onClick={() => setActiveTab(tab)}
+                  onClick={() => handleTabChange(tab)}
                   className={`flex-1 text-[13px] sm:text-[14px] font-medium py-2 sm:py-2.5 px-4 sm:px-6 rounded-full capitalize transition-all duration-300 ${activeTab === tab
                     ? "text-[var(--ws-text-inverse)] bg-[var(--ws-text-primary)] shadow-sm"
                     : "text-[var(--ws-text-secondary)] hover:text-[var(--ws-text-primary)]"
@@ -530,14 +533,19 @@ export default function PlanView({ result, event, searchMetadata, debugLog, onRe
           </div>
 
           <div className="px-4 sm:px-10 py-5 sm:py-8 w-full mt-2 sm:mt-4">
-            <AnimatePresence mode="popLayout">
+            <AnimatePresence mode="wait" initial={false}>
               {activeTab === "actions" && (
                 <motion.div
                   key="actions"
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 10 }}
-                  transition={{ duration: 0.2 }}
+
+                  variants={{
+                    initial: { opacity: 0, x: tabDirection * 20 },
+                    animate: { opacity: 1, x: 0, transition: { type: "spring", bounce: 0, duration: 0.35 } },
+                    exit: { opacity: 0, transition: { duration: 0.08 } },
+                  }}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
                   className="w-full max-w-5xl mx-auto flex flex-col pt-2"
                 >
                   {/* Agent Summary HUD */}
@@ -562,11 +570,40 @@ export default function PlanView({ result, event, searchMetadata, debugLog, onRe
                           Pathfinder Analysis
                         </h3>
                         <p className="text-[14px] leading-relaxed text-[var(--ws-text-secondary)]">
-                          I analyzed your profile across {result.thinking_steps.length} dimensions, including stress-testing your {event} scenario against current tax codes and market conditions. I formulated {result.quick_actions.length} optimal moves to maximize your net worth and cash flow over the next timeline.
+                          {(() => {
+                            const steps = result.thinking_steps.length;
+                            const actions = result.quick_actions.length;
+                            const doNow = result.quick_actions.filter(a => a.priority === 'do_now').length;
+                            const hasRisks = result.risk_warnings.length > 0;
+                            const hasAdvisor = result.advisor_flags.length > 0;
+                            const nw = result.impact_summary.net_worth_change;
+                            const nwDir = nw.value.startsWith('+') || nw.value.startsWith('$') ? 'grow' : nw.value.startsWith('-') ? 'protect' : 'optimize';
+
+                            const parts: string[] = [];
+                            parts.push(`I analyzed your finances across ${steps} dimension${steps !== 1 ? 's' : ''} for your "${event}" scenario.`);
+
+                            if (actions === 1) {
+                              parts.push(`There's 1 key action to take${doNow === 1 ? ' right away' : ''}.`);
+                            } else {
+                              parts.push(`I identified ${actions} actions to ${nwDir} your finances${doNow > 0 ? `, ${doNow} of which ${doNow === 1 ? 'is' : 'are'} urgent` : ''}.`);
+                            }
+
+                            if (hasRisks && hasAdvisor) {
+                              parts.push(`I flagged ${result.risk_warnings.length} risk${result.risk_warnings.length !== 1 ? 's' : ''} and ${result.advisor_flags.length} item${result.advisor_flags.length !== 1 ? 's' : ''} to discuss with an advisor.`);
+                            } else if (hasRisks) {
+                              parts.push(`I also flagged ${result.risk_warnings.length} risk${result.risk_warnings.length !== 1 ? 's' : ''} to watch out for.`);
+                            } else if (hasAdvisor) {
+                              parts.push(`I also identified ${result.advisor_flags.length} topic${result.advisor_flags.length !== 1 ? 's' : ''} worth discussing with an advisor.`);
+                            }
+
+                            return parts.join(' ');
+                          })()}
                         </p>
                       </div>
                     </div>
                   </motion.div>
+
+                  {searchMetadata && <SearchSourcesBanner metadata={searchMetadata} />}
 
                   <div className="flex items-center justify-between mb-4 mt-2">
                     <h2 className="text-[20px] font-semibold text-[var(--ws-text-primary)]">
@@ -671,10 +708,14 @@ export default function PlanView({ result, event, searchMetadata, debugLog, onRe
               {activeTab === "impacts" && (
                 <motion.div
                   key="impacts"
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 10 }}
-                  transition={{ duration: 0.2 }}
+                  variants={{
+                    initial: { opacity: 0, x: tabDirection * 20 },
+                    animate: { opacity: 1, x: 0, transition: { type: "spring", bounce: 0, duration: 0.35 } },
+                    exit: { opacity: 0, transition: { duration: 0.08 } },
+                  }}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
                   className="w-full max-w-5xl mx-auto flex flex-col gap-8 sm:gap-12 pt-2"
                 >
                   <div>
@@ -703,10 +744,14 @@ export default function PlanView({ result, event, searchMetadata, debugLog, onRe
               {activeTab === "cashflow" && (
                 <motion.div
                   key="cashflow"
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 10 }}
-                  transition={{ duration: 0.2 }}
+                  variants={{
+                    initial: { opacity: 0, x: tabDirection * 20 },
+                    animate: { opacity: 1, x: 0, transition: { type: "spring", bounce: 0, duration: 0.35 } },
+                    exit: { opacity: 0, transition: { duration: 0.08 } },
+                  }}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
                   className="w-full max-w-5xl mx-auto pt-2"
                 >
                   <h3 className="text-[20px] font-semibold text-[var(--ws-text-primary)] mb-4">Monthly Cash Flow</h3>
@@ -737,7 +782,7 @@ export default function PlanView({ result, event, searchMetadata, debugLog, onRe
             </div>
           </div>
         </div>
-      </motion.div>
+      </div>
 
       {/* Confirmation sheet overlay */}
       <AnimatePresence>

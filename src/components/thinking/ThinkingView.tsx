@@ -166,12 +166,7 @@ export default function ThinkingView({
   };
 
   return (
-    <motion.div
-      className="w-full max-w-[420px]"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ type: "spring", bounce: 0, duration: 0.6 }}
-    >
+    <div className="w-full max-w-[420px]">
       {/* Hero image (fades in when ready) */}
       <AnimatePresence>
         {heroImage && (
@@ -256,6 +251,6 @@ export default function ThinkingView({
           </motion.div>
         )}
       </AnimatePresence>
-    </motion.div>
+    </div>
   );
 }

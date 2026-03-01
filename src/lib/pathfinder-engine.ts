@@ -166,6 +166,11 @@ function applyPostParseGuardrails(
           action.amount = available;
           action.title = action.title.replace(/\$[\d,.]+/, `$${available.toLocaleString('en-CA')}`);
         }
+      } else {
+        // Source account not found in ledger — AI hallucinated or misspelled the account name
+        console.warn(`[Guardrail] Removed "${action.title}" — source "${action.from_account}" not found in any account`);
+        removedActions.push(`"${action.title}" — unknown source account "${action.from_account}"`);
+        continue;
       }
     }
 
@@ -255,7 +260,7 @@ function applyPostParseGuardrails(
     result.quick_actions = result.quick_actions.slice(0, maxActions);
   }
 
-  // ── Fix account_impacts: correct current_balance to match actual profile ──
+  // ── Rebuild account_impacts from REAL balances + validated actions ──
   const actualBalances: Record<string, number> = {
     'Chequing': profile.chequingBalance,
     'Savings': profile.savingsBalance,
@@ -268,65 +273,120 @@ function applyPostParseGuardrails(
     actualBalances[fund.name] = fund.balance;
   }
 
-  if (result.account_impacts) {
-    for (const impact of result.account_impacts) {
-      // Coerce balances to numbers and fix null/undefined/NaN
-      impact.current_balance = Number(impact.current_balance);
-      if (!Number.isFinite(impact.current_balance)) {
-        impact.current_balance = 0;
-      }
-      impact.projected_balance = Number(impact.projected_balance);
-      if (!Number.isFinite(impact.projected_balance)) {
-        console.warn(`[Guardrail] Fixed ${impact.account_name} projected_balance: was null/NaN, defaulting to current_balance`);
-        impact.projected_balance = impact.current_balance;
-      }
+  // Compute net deltas per account from the validated actions
+  const accountDeltas = new Map<string, number>();
+  for (const action of result.quick_actions) {
+    const amount = action.amount ?? 0;
+    if (amount <= 0) continue;
 
-      // Find the actual balance by matching account name (case-insensitive)
-      const matchKey = Object.keys(actualBalances).find(
-        k => normAccount(k) === normAccount(impact.account_name)
-      );
-      if (matchKey !== undefined) {
-        const actual = actualBalances[matchKey];
-        if (impact.current_balance !== actual) {
-          console.warn(
-            `[Guardrail] Fixed ${impact.account_name} current_balance: AI said $${impact.current_balance}, actual $${actual}`
-          );
-          // Preserve the delta the AI intended, but anchor to real balance
-          const intendedDelta = impact.projected_balance - impact.current_balance;
-          impact.current_balance = actual;
-          impact.projected_balance = actual + intendedDelta;
-        }
+    // Withdrawals from source
+    if (action.from_account) {
+      const srcNorm = normAccount(action.from_account);
+      accountDeltas.set(srcNorm, (accountDeltas.get(srcNorm) ?? 0) - amount);
+    }
+    // Deposits to destination (for move, create_fund, open_account)
+    if (action.to_account && (action.type === 'move' || action.type === 'create_fund' || action.type === 'open_account')) {
+      const destNorm = normAccount(action.to_account);
+      accountDeltas.set(destNorm, (accountDeltas.get(destNorm) ?? 0) + amount);
+    }
+    // Automations: show first month impact
+    if (action.type === 'automate' && action.automation && action.automation.amount > 0) {
+      const autoAmt = action.automation.amount;
+      const srcNorm = action.from_account ? normAccount(action.from_account) : 'chequing';
+      accountDeltas.set(srcNorm, (accountDeltas.get(srcNorm) ?? 0) - autoAmt);
+      if (action.to_account) {
+        const destNorm = normAccount(action.to_account);
+        accountDeltas.set(destNorm, (accountDeltas.get(destNorm) ?? 0) + autoAmt);
       }
-
-      // Cap projected_balance for registered accounts to actual room
-      const norm = normAccount(impact.account_name);
-      if (norm === 'tfsa') {
-        const maxProjected = profile.tfsaBalance + profile.tfsaRoom;
-        if (impact.projected_balance > maxProjected) {
-          console.warn(`[Guardrail] Capped TFSA projected: $${impact.projected_balance} → $${maxProjected}`);
-          impact.projected_balance = maxProjected;
-        }
-      } else if (norm === 'rrsp') {
-        const maxProjected = profile.rrspBalance + profile.rrspRoom;
-        if (impact.projected_balance > maxProjected) {
-          console.warn(`[Guardrail] Capped RRSP projected: $${impact.projected_balance} → $${maxProjected}`);
-          impact.projected_balance = maxProjected;
-        }
-      } else if (norm === 'fhsa') {
-        const fhsaMax = Math.min(40000, profile.fhsaBalance + Math.max(0, 8000 - profile.fhsaBalance));
-        if (impact.projected_balance > fhsaMax) {
-          console.warn(`[Guardrail] Capped FHSA projected: $${impact.projected_balance} → $${fhsaMax}`);
-          impact.projected_balance = fhsaMax;
-        }
-      }
-      // Ensure projected never goes negative
-      if (impact.projected_balance < 0) impact.projected_balance = 0;
+    }
+    // Pay-off: reduce credit card debt
+    if (action.type === 'pay_off') {
+      accountDeltas.set('creditcard', (accountDeltas.get('creditcard') ?? 0) - amount);
     }
   }
 
-  // ── Fix monthly_cashflow: coerce amounts and ensure first phase matches actual surplus ──
+  // Build a lookup of AI hints (impact_text, note) keyed by normalized account name
+  const aiHints = new Map<string, { impact_text: string; note?: string }>();
+  if (result.account_impacts) {
+    for (const impact of result.account_impacts) {
+      aiHints.set(normAccount(impact.account_name), {
+        impact_text: impact.impact_text,
+        note: impact.note,
+      });
+    }
+  }
+
+  // Rebuild account_impacts from real data + computed deltas
+  const computedImpacts: typeof result.account_impacts = [];
+  for (const [name, currentBalance] of Object.entries(actualBalances)) {
+    const norm = normAccount(name);
+    const delta = accountDeltas.get(norm) ?? 0;
+    if (delta === 0) continue; // Only show accounts affected by actions
+
+    let projected = currentBalance + delta;
+
+    // Cap registered accounts to room
+    if (norm === 'tfsa') {
+      projected = Math.min(projected, profile.tfsaBalance + profile.tfsaRoom);
+    } else if (norm === 'rrsp') {
+      projected = Math.min(projected, profile.rrspBalance + profile.rrspRoom);
+    } else if (norm === 'fhsa') {
+      projected = Math.min(projected, Math.min(40000, profile.fhsaBalance + Math.max(0, 8000 - profile.fhsaBalance)));
+    }
+    // Credit card can't go below 0
+    if (norm === 'creditcard') {
+      projected = Math.max(0, profile.creditCardBalance + delta);
+    }
+    projected = Math.max(0, projected);
+
+    const hint = aiHints.get(norm);
+    const status = projected > currentBalance ? 'positive' : projected < currentBalance ? 'negative' : 'neutral';
+
+    computedImpacts.push({
+      account_name: name,
+      current_balance: currentBalance,
+      projected_balance: Math.round(projected),
+      impact_text: hint?.impact_text ?? (delta > 0 ? `+$${delta.toLocaleString('en-CA')} from actions` : `-$${Math.abs(delta).toLocaleString('en-CA')} from actions`),
+      status: norm === 'creditcard' && delta < 0 ? 'positive' : status, // Paying off debt is positive
+      note: hint?.note,
+    });
+  }
+
+  // Also add impacts for NEW funds created by actions (not in profile yet)
+  for (const [normName, delta] of accountDeltas.entries()) {
+    if (delta <= 0) continue;
+    const alreadyIncluded = Object.keys(actualBalances).some(k => normAccount(k) === normName);
+    if (alreadyIncluded) continue;
+    // Find the display name from the action
+    const displayName = result.quick_actions.find(
+      a => a.to_account && normAccount(a.to_account) === normName
+    )?.to_account ?? normName;
+    const hint = aiHints.get(normName);
+    computedImpacts.push({
+      account_name: displayName,
+      current_balance: 0,
+      projected_balance: Math.round(delta),
+      impact_text: hint?.impact_text ?? `New fund: $${delta.toLocaleString('en-CA')}`,
+      status: 'positive',
+      note: hint?.note,
+    });
+  }
+
+  result.account_impacts = computedImpacts;
+
+  // ── Rebuild monthly_cashflow from real surplus + action automations ──
+  const actualSurplus = Math.round(metrics.monthlySurplus);
+
+  // Sum up monthly automation amounts from validated actions
+  let totalMonthlyAutomation = 0;
+  for (const action of result.quick_actions) {
+    if (action.type === 'automate' && action.automation && action.automation.amount > 0) {
+      totalMonthlyAutomation += action.automation.amount;
+    }
+  }
+
   if (result.monthly_cashflow && result.monthly_cashflow.length > 0) {
-    // Coerce all amounts to numbers (handles strings like "-$1,204")
+    // Coerce all amounts to numbers
     for (const entry of result.monthly_cashflow) {
       if (typeof entry.amount === 'string') {
         const stripped = (entry.amount as string).replace(/[^0-9.\-]/g, '');
@@ -336,14 +396,31 @@ function applyPostParseGuardrails(
       }
     }
 
-    const actualSurplus = Math.round(metrics.monthlySurplus);
+    // Fix first phase to actual surplus
     const first = result.monthly_cashflow[0];
-    if (first.phase.toLowerCase().includes('current') && first.amount !== actualSurplus) {
-      console.warn(
-        `[Guardrail] Fixed cashflow "Current": AI said $${first.amount}, actual surplus $${actualSurplus}`
-      );
+    if (first.amount !== actualSurplus) {
+      console.warn(`[Guardrail] Fixed cashflow "${first.phase}": AI said $${first.amount}, actual surplus $${actualSurplus}`);
       first.amount = actualSurplus;
     }
+
+    // Fix second phase if it exists — anchor to surplus minus automations
+    if (result.monthly_cashflow.length >= 2 && totalMonthlyAutomation > 0) {
+      const second = result.monthly_cashflow[1];
+      const adjustedSurplus = actualSurplus - totalMonthlyAutomation;
+      if (second.amount !== adjustedSurplus) {
+        console.warn(`[Guardrail] Fixed cashflow "${second.phase}": AI said $${second.amount}, adjusted to $${adjustedSurplus} (surplus $${actualSurplus} - automations $${totalMonthlyAutomation})`);
+        second.amount = adjustedSurplus;
+      }
+    }
+  } else {
+    // AI didn't provide cashflow at all — build from scratch
+    const phases: typeof result.monthly_cashflow = [
+      { phase: 'Current', amount: actualSurplus },
+    ];
+    if (totalMonthlyAutomation > 0) {
+      phases.push({ phase: 'After plan', amount: actualSurplus - totalMonthlyAutomation });
+    }
+    result.monthly_cashflow = phases;
   }
 
   return result;
@@ -388,7 +465,7 @@ When in doubt: search. Cost is 1-2s latency; stale data leads to wrong dollar am
 - Liquid: $${m.liquidAssets}, Invested: $${m.investedAssets}, Net worth: $${Math.round(m.totalNetWorth)}
 - Surplus: $${Math.round(m.monthlySurplus)}/mo (${m.savingsRate}% savings rate)
 - Emergency fund: ${m.emergencyFundMonths} months
-- TFSA room: $${profile.tfsaRoom}, RRSP room: $${profile.rrspRoom}
+- TFSA deposit room (contribution space, NOT balance): $${profile.tfsaRoom}, RRSP deposit room: $${profile.rrspRoom}
 - FHSA balance: $${profile.fhsaBalance}${m.isFirstTimeBuyer ? ' (first-time buyer)' : ''}
 - Housing: ${profile.housingType}, $${profile.housingExpense}/mo${profile.mortgageBalance > 0 ? `, mortgage: $${profile.mortgageBalance}` : ''}
 - Debt payments: $${profile.debtPayments}/mo${profile.creditCardBalance > 0 ? `, credit card: $${profile.creditCardBalance.toFixed(2)}` : ''}
@@ -472,7 +549,11 @@ Topics:
   const sources: SearchSource[] = [];
   const searchQueries: string[] = [];
 
+  // Debug: log raw response structure to diagnose grounding issues
+  console.info('[Search] Response keys:', Object.keys(response));
+  console.info('[Search] Candidates:', JSON.stringify(response.candidates?.map(c => Object.keys(c)), null, 2));
   const grounding = response.candidates?.[0]?.groundingMetadata;
+  console.info('[Search] Grounding metadata:', grounding ? Object.keys(grounding) : 'null');
   if (grounding?.webSearchQueries) {
     searchQueries.push(...grounding.webSearchQueries);
     console.info('[Search] Queries used:', grounding.webSearchQueries);
@@ -573,6 +654,7 @@ export async function runPathfinder(
 
   // Step 1: Router
   const route = await routeQuery(ai, profile, lifeEvent, customFunds);
+  console.info('[Pipeline] Router result:', JSON.stringify(route));
   log.push({
     step: 'Router',
     detail: route.needs_search
@@ -594,7 +676,9 @@ export async function runPathfinder(
         data: searchContext.slice(0, 300),
       });
     } catch (err) {
-      log.push({ step: 'Search', detail: 'Search failed, proceeding without' });
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[Search] Failed:', msg);
+      log.push({ step: 'Search', detail: `Search failed: ${msg}` });
     }
   }
 

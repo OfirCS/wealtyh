@@ -104,9 +104,14 @@ export default function HomeScreen({
 
   const p = profile;
   const totalBalance =
-    p.chequingBalance + p.savingsBalance + p.tfsaBalance +
-    p.rrspBalance + p.fhsaBalance + p.nonRegBalance +
-    customFunds.reduce((sum, f) => sum + f.balance, 0);
+    (p.chequingBalance > 0 ? p.chequingBalance : 0) +
+    (p.savingsBalance > 0 ? p.savingsBalance : 0) +
+    (p.tfsaBalance > 0 ? p.tfsaBalance : 0) +
+    (p.rrspBalance > 0 ? p.rrspBalance : 0) +
+    (p.fhsaBalance > 0 ? p.fhsaBalance : 0) +
+    (p.nonRegBalance > 0 ? p.nonRegBalance : 0) -
+    (p.creditCardBalance > 0 ? p.creditCardBalance : 0) +
+    customFunds.reduce((sum, f) => sum + (f.balance > 0 ? f.balance : 0), 0);
   const showSummary = summaryVisible && !!appliedSummary && appliedSummary.actions.length > 0;
 
   const startEdit = useCallback(() => {
@@ -725,11 +730,6 @@ export default function HomeScreen({
                       label="Credit Card Balance"
                       value={draft.creditCardBalance}
                       onChange={(v) => updateField("creditCardBalance", v)}
-                    />
-                    <CurrencyInput
-                      label="Non-Registered"
-                      value={draft.nonRegBalance}
-                      onChange={(v) => updateField("nonRegBalance", v)}
                     />
                   </div>
                 </motion.div>

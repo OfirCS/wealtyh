@@ -119,8 +119,8 @@ export function buildUserMessage(
   const accountRows = [
     `| Chequing       | ${fmtDollar(profile.chequingBalance)} | —     | max move: ${fmtDollar(m.maxMoveableByAccount['Chequing'])} |`,
     `| Savings        | ${fmtDollar(profile.savingsBalance)} | —     | max move: ${fmtDollar(m.maxMoveableByAccount['Savings'])} |`,
-    `| TFSA           | ${fmtDollar(profile.tfsaBalance)} | room: ${fmtDollar(profile.tfsaRoom)} | max move: ${fmtDollar(m.maxMoveableByAccount['TFSA'])} |`,
-    `| RRSP           | ${fmtDollar(profile.rrspBalance)} | room: ${fmtDollar(profile.rrspRoom)} | max move: ${fmtDollar(m.maxMoveableByAccount['RRSP'])} |`,
+    `| TFSA           | ${fmtDollar(profile.tfsaBalance)} | deposit room: ${fmtDollar(profile.tfsaRoom)} | max move: ${fmtDollar(m.maxMoveableByAccount['TFSA'])} |`,
+    `| RRSP           | ${fmtDollar(profile.rrspBalance)} | deposit room: ${fmtDollar(profile.rrspRoom)} | max move: ${fmtDollar(m.maxMoveableByAccount['RRSP'])} |`,
     `| FHSA           | ${fmtDollar(profile.fhsaBalance)} | —     | max move: ${fmtDollar(m.maxMoveableByAccount['FHSA'])} |`,
     `| Non-Registered | ${fmtDollar(profile.nonRegBalance)} | —     | max move: ${fmtDollar(m.maxMoveableByAccount['Non-Registered'])} |`,
   ];
@@ -128,12 +128,12 @@ export function buildUserMessage(
   let customFundsSection = '';
   if (customFunds.length > 0) {
     const fundLines = customFunds
-      .map(f => `| ${f.name} | ${fmtDollar(f.balance)} |`)
+      .map(f => `| ${f.name} | ${fmtDollar(f.balance)} | max move: ${fmtDollar(f.balance)} |`)
       .join('\n');
     customFundsSection = `
 ## Custom Saving Goals (ALREADY EXIST — do NOT create duplicates)
-| Fund | Balance |
-|------|---------|
+| Fund | Balance | Guardrail |
+|------|---------|-----------|
 ${fundLines}`;
   }
 
@@ -152,6 +152,7 @@ ${profile.mortgageBalance > 0 ? `- Mortgage: ${fmtDollar(profile.mortgageBalance
 ${m.isFirstTimeBuyer ? '- First-time home buyer: YES' : ''}
 
 ## Accounts
+IMPORTANT: "deposit room" = remaining contribution space, NOT money in the account. Balance is the actual cash. Never move more than the "max move" amount from any account.
 | Account | Balance | Room / Notes | Guardrail |
 |---------|---------|--------------|-----------|
 ${accountRows.join('\n')}
