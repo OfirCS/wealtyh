@@ -77,3 +77,30 @@ input[type="number"] {
   background: var(--ws-accent-yellow);
   color: var(--ws-text-primary);
 }
+
+/* Prompt input animated border */
+.prompt-input-border {
+  background: linear-gradient(135deg, rgba(100,160,255,0.25), rgba(160,120,255,0.2), rgba(80,200,170,0.2), rgba(100,160,255,0.25));
+  background-size: 300% 300%;
+  animation: gradient-shift 4s ease-in-out infinite;
+}
+
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.15); }
+}
+
+@keyframes aurora {
+  0% { opacity: 0.5; transform: translateY(0) scale(1); }
+  100% { opacity: 0.8; transform: translateY(-8px) scale(1.05); }
+}

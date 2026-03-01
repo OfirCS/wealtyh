@@ -2,7 +2,7 @@
 
 import { useReducer, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import type { AppState, AppAction, FinancialProfile, PathfinderResult, SearchMetadata, QuickAction, AppliedSummary } from '@/lib/types';
+import type { AppState, AppAction, FinancialProfile, PathfinderResult, SearchMetadata, QuickAction, AppliedSummary, CustomFund, DebugLog } from '@/lib/types';
 import { DEFAULT_PROFILE } from '@/lib/defaults';
 import { applyConfirmedActions } from '@/lib/apply-actions';
 import HomeScreen from '@/components/home/HomeScreen';
@@ -15,11 +15,14 @@ function appReducer(state: AppState, action: AppAction): AppState {
     case 'UPDATE_PROFILE':
       if (state.step !== 'home') return state;
       return { step: 'home', profile: action.profile, customFunds: state.customFunds };
+    case 'UPDATE_CUSTOM_FUNDS':
+      if (state.step !== 'home') return state;
+      return { ...state, customFunds: action.customFunds };
     case 'SUBMIT_EVENT':
       return { step: 'thinking', profile: state.profile, customFunds: state.customFunds, event: action.event };
     case 'COMPLETE_THINKING':
       if (state.step !== 'thinking') return state;
-      return { step: 'plan', profile: state.profile, customFunds: state.customFunds, event: state.event, result: action.result, searchMetadata: action.searchMetadata };
+      return { step: 'plan', profile: state.profile, customFunds: state.customFunds, event: state.event, result: action.result, searchMetadata: action.searchMetadata, debugLog: action.debugLog };
     case 'THINKING_ERROR':
       if (state.step !== 'thinking') return state;
       return { step: 'error', profile: state.profile, customFunds: state.customFunds, event: state.event, message: action.message };
@@ -95,12 +98,16 @@ export default function Home() {
     dispatch({ type: 'UPDATE_PROFILE', profile });
   }, []);
 
+  const handleCustomFundsChange = useCallback((customFunds: CustomFund[]) => {
+    dispatch({ type: 'UPDATE_CUSTOM_FUNDS', customFunds });
+  }, []);
+
   const handleEventSubmit = useCallback((event: string) => {
     dispatch({ type: 'SUBMIT_EVENT', event });
   }, []);
 
-  const handleThinkingComplete = useCallback((result: PathfinderResult, searchMetadata: SearchMetadata | null) => {
-    dispatch({ type: 'COMPLETE_THINKING', result, searchMetadata });
+  const handleThinkingComplete = useCallback((result: PathfinderResult, searchMetadata: SearchMetadata | null, debugLog: DebugLog | null) => {
+    dispatch({ type: 'COMPLETE_THINKING', result, searchMetadata, debugLog });
   }, []);
 
   const handleThinkingError = useCallback((message: string) => {
@@ -170,6 +177,7 @@ export default function Home() {
                   customFunds={state.customFunds}
                   appliedSummary={state.appliedSummary}
                   onProfileChange={handleProfileChange}
+                  onCustomFundsChange={handleCustomFundsChange}
                   onSubmit={handleEventSubmit}
                 />
               </motion.div>
@@ -208,6 +216,7 @@ export default function Home() {
                   result={state.result}
                   event={state.event}
                   searchMetadata={state.searchMetadata}
+                  debugLog={state.debugLog}
                   onReset={handleReset}
                   onApplyActions={handleApplyActions}
                 />

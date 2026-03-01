@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import type { FinancialProfile, CustomFund, PathfinderResult, SearchMetadata } from "@/lib/types";
-import { callPathfinder } from "@/lib/claude";
+import type { FinancialProfile, CustomFund, PathfinderResult, SearchMetadata, DebugLog, ThinkingStep as ThinkingStepType } from "@/lib/types";
+import { callPathfinder, callPathfinderThink } from "@/lib/claude";
 import ThinkingStep from "./ThinkingStep";
 import ThinkingProgress from "./ThinkingProgress";
 
@@ -11,67 +11,17 @@ interface ThinkingViewProps {
   profile: FinancialProfile;
   customFunds: CustomFund[];
   event: string;
-  onComplete: (result: PathfinderResult, searchMetadata: SearchMetadata | null) => void;
+  onComplete: (result: PathfinderResult, searchMetadata: SearchMetadata | null, debugLog: DebugLog | null) => void;
   onError: (message: string) => void;
 }
 
-// Generate context-aware thinking lines from the event and profile
-function generateThinkingLines(
-  event: string,
-  profile: FinancialProfile
-): string[] {
-  const lines: string[] = [];
-  const e = event.toLowerCase();
-  const householdIncome = profile.annualIncome + profile.partnerIncome;
+// Placeholder lines shown while pre-think is in flight
+const PLACEHOLDER_LINES = [
+  "Reading your accounts...",
+  "Running scenarios...",
+];
 
-  lines.push(
-    `Analyzing $${(householdIncome / 1000).toFixed(0)}K household income in ${profile.province}`
-  );
-
-  if (/baby|child|parental|pregnan|newborn/.test(e)) {
-    lines.push("Calculating EI parental leave benefits");
-    lines.push("Estimating child costs and Canada Child Benefit");
-  }
-  if (/home|house|buy|mortgage|condo|property|real estate/.test(e)) {
-    lines.push("Simulating mortgage payments and housing costs");
-    lines.push("Checking HBP and FHSA eligibility");
-  }
-  if (/business|start|bakery|restaurant|shop|company|entrepreneur|launch/.test(e)) {
-    lines.push("Researching business startup costs");
-    lines.push("Modeling self-employment tax impact");
-  }
-  if (/school|education|degree|program|university|college|tuition/.test(e)) {
-    lines.push("Estimating education costs and student funding");
-  }
-  if (/travel|break|sabbatical|year off|time off/.test(e)) {
-    lines.push("Projecting income gap during career break");
-  }
-  if (/quit|leave.*job|freelance|contract|gig|consult/.test(e)) {
-    lines.push("Modeling variable income scenarios");
-  }
-  if (/move|relocat|immigrat|country|abroad|israel|europe|us/.test(e)) {
-    lines.push("Analyzing relocation financial impact");
-  }
-  if (/retire|pension|cpp|oas/.test(e)) {
-    lines.push("Projecting retirement income sources");
-  }
-  if (/invest|stock|etf|portfolio|crypto/.test(e)) {
-    lines.push("Reviewing investment allocation strategy");
-  }
-  if (/debt|loan|credit|pay off/.test(e)) {
-    lines.push("Modeling debt repayment scenarios");
-  }
-
-  lines.push(
-    `Reviewing TFSA ($${(profile.tfsaBalance / 1000).toFixed(1)}K), RRSP ($${(profile.rrspBalance / 1000).toFixed(1)}K) allocation`
-  );
-  lines.push("Searching for current rates and data");
-  lines.push("Building your personalized financial plan");
-
-  return [...new Set(lines)].slice(0, 7);
-}
-
-const LINE_DELAY = 1200;
+const LINE_DELAY = 800;
 const PROGRESS_DURATION = 1500;
 const PROGRESS_INTERVAL = 25;
 const POST_PROGRESS_PAUSE = 500;
@@ -86,32 +36,46 @@ export default function ThinkingView({
   onComplete,
   onError,
 }: ThinkingViewProps) {
-  const thinkingLines = generateThinkingLines(event, profile);
+  const [displayLines, setDisplayLines] = useState<string[]>(PLACEHOLDER_LINES);
   const [activeIndex, setActiveIndex] = useState(-1);
-  const [completedIndices, setCompletedIndices] = useState<Set<number>>(
-    new Set()
-  );
+  const [completedIndices, setCompletedIndices] = useState<Set<number>>(new Set());
   const [showProgress, setShowProgress] = useState(false);
   const [progress, setProgress] = useState(0);
   const [heroImage, setHeroImage] = useState<string | null>(null);
   const hasStarted = useRef(false);
   const apiResult = useRef<PathfinderResult | null>(null);
   const apiSearchMeta = useRef<SearchMetadata | null>(null);
+  const apiDebugLog = useRef<DebugLog | null>(null);
   const apiError = useRef<string | null>(null);
+  const preThinkResolved = useRef(false);
+  const realThinkingLines = useRef<string[]>([]);
 
   const runSequence = useCallback(async () => {
-    // Fire API call in parallel
+    // Fire ALL three calls in parallel
     const apiPromise = callPathfinder(profile, event, customFunds)
       .then((response) => {
         apiResult.current = response.result;
         apiSearchMeta.current = response.searchMetadata;
+        apiDebugLog.current = response.debugLog;
       })
       .catch((err) => {
         apiError.current =
           err instanceof Error ? err.message : "Something went wrong";
       });
 
-    // Fire image generation in parallel (optional, non-blocking)
+    // Pre-think: get real thinking steps fast (~1-2s)
+    const preThinkPromise = callPathfinderThink(profile, event, customFunds)
+      .then((steps) => {
+        if (steps.length > 0) {
+          realThinkingLines.current = steps.map((s) => s.title);
+          preThinkResolved.current = true;
+        }
+      })
+      .catch(() => {
+        // Pre-think is optional — fall back to placeholders
+      });
+
+    // Image generation (optional, non-blocking)
     fetch("/api/generate-image", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -123,26 +87,45 @@ export default function ThinkingView({
           setHeroImage(`data:image/png;base64,${data.imageBase64}`);
         }
       })
-      .catch(() => {
-        // Image gen is optional, fail silently
-      });
+      .catch(() => { });
 
     await delay(400);
 
-    // Reveal lines one by one
-    for (let i = 0; i < thinkingLines.length; i++) {
+    // Show placeholder lines first
+    for (let i = 0; i < PLACEHOLDER_LINES.length; i++) {
       if (i > 0) {
         setCompletedIndices((prev) => new Set(prev).add(i - 1));
       }
       setActiveIndex(i);
       await delay(LINE_DELAY);
     }
-
-    // Mark last line complete
-    setCompletedIndices(
-      (prev) => new Set(prev).add(thinkingLines.length - 1)
-    );
+    setCompletedIndices((prev) => new Set(prev).add(PLACEHOLDER_LINES.length - 1));
     setActiveIndex(-1);
+
+    // Wait for pre-think if it hasn't resolved yet (give it up to 3s extra)
+    if (!preThinkResolved.current) {
+      await Promise.race([preThinkPromise, delay(3000)]);
+    }
+
+    // If real thinking lines arrived, switch to them and animate
+    if (preThinkResolved.current && realThinkingLines.current.length > 0) {
+      const lines = realThinkingLines.current;
+      setDisplayLines(lines);
+      setCompletedIndices(new Set());
+      setActiveIndex(-1);
+
+      await delay(300);
+
+      for (let i = 0; i < lines.length; i++) {
+        if (i > 0) {
+          setCompletedIndices((prev) => new Set(prev).add(i - 1));
+        }
+        setActiveIndex(i);
+        await delay(LINE_DELAY);
+      }
+      setCompletedIndices((prev) => new Set(prev).add(lines.length - 1));
+      setActiveIndex(-1);
+    }
 
     await delay(400);
 
@@ -164,11 +147,11 @@ export default function ThinkingView({
 
     // Route to result or error
     if (apiResult.current) {
-      onComplete(apiResult.current, apiSearchMeta.current);
+      onComplete(apiResult.current, apiSearchMeta.current, apiDebugLog.current);
     } else {
       onError(apiError.current || "Failed to generate financial plan");
     }
-  }, [profile, customFunds, event, thinkingLines, onComplete, onError]);
+  }, [profile, customFunds, event, onComplete, onError]);
 
   useEffect(() => {
     if (hasStarted.current) return;
@@ -187,7 +170,7 @@ export default function ThinkingView({
       className="w-full max-w-[420px]"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      transition={{ duration: 0.3 }}
+      transition={{ type: "spring", bounce: 0, duration: 0.6 }}
     >
       {/* Hero image (fades in when ready) */}
       <AnimatePresence>
@@ -195,8 +178,28 @@ export default function ThinkingView({
           <motion.div
             className="w-full mb-6 flex justify-center"
             initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.6, ease: "easeOut" as const }}
+            animate={{
+              opacity: 1,
+              scale: [1, 1.05, 1],
+              boxShadow: [
+                "0px 0px 0px rgba(0,0,0,0)",
+                "0px 10px 30px rgba(0,0,0,0.15)",
+                "0px 0px 0px rgba(0,0,0,0)"
+              ]
+            }}
+            transition={{
+              type: "spring", bounce: 0, duration: 0.8,
+              scale: {
+                duration: 4,
+                repeat: Infinity,
+                ease: "easeInOut"
+              },
+              boxShadow: {
+                duration: 4,
+                repeat: Infinity,
+                ease: "easeInOut"
+              }
+            }}
           >
             <div className="w-[160px] h-[160px] rounded-[24px] overflow-hidden shadow-lg border border-white/20">
               <img
@@ -228,14 +231,14 @@ export default function ThinkingView({
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3, delay: 0.2 }}
       >
-        Pathfinder is analyzing...
+        Analyzing...
       </motion.p>
 
-      {/* Thinking lines */}
+      {/* Thinking lines (real AI or placeholder) */}
       <div className="flex flex-col gap-1">
         <AnimatePresence mode="sync">
-          {thinkingLines.map((line, i) => (
-            <ThinkingStep key={i} text={line} status={getStatus(i)} />
+          {displayLines.map((line, i) => (
+            <ThinkingStep key={`${line}-${i}`} text={line} status={getStatus(i)} />
           ))}
         </AnimatePresence>
       </div>
@@ -247,7 +250,7 @@ export default function ThinkingView({
             className="mt-8"
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, ease: "easeOut" }}
+            transition={{ type: "spring", bounce: 0, duration: 0.6 }}
           >
             <ThinkingProgress progress={progress} />
           </motion.div>

@@ -35,7 +35,7 @@ export default function ThinkingProgress({ progress }: ThinkingProgressProps) {
             fill="transparent"
             initial={{ strokeDasharray: circumference, strokeDashoffset: circumference }}
             animate={{ strokeDashoffset: offset }}
-            transition={{ duration: 0.3, ease: "easeOut" }}
+            transition={{ type: "spring", bounce: 0, duration: 0.4 }}
           />
         </svg>
         {/* Percentage Text */}

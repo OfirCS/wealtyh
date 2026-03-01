@@ -52,7 +52,7 @@ export default function AccountImpactCards({ impacts }: AccountImpactCardsProps)
       <p className="text-[11px] text-[var(--ws-text-tertiary)] uppercase tracking-wider font-semibold mb-3">
         Projected Account Impact
       </p>
-      <div className="flex flex-row overflow-x-auto snap-x hide-scrollbar gap-4 pb-4 -mx-4 px-4 sm:-mx-10 sm:px-10">
+      <div className="flex flex-row overflow-x-auto snap-x hide-scrollbar gap-4 pb-4 -mx-4 px-4 sm:mx-0 sm:px-0">
         {changedImpacts.map((impact, i) => {
           const color = getStatusColor(impact.status);
           const diff = impact.projected_balance - impact.current_balance;
@@ -66,7 +66,7 @@ export default function AccountImpactCards({ impacts }: AccountImpactCardsProps)
                 }`}
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1], delay: 0.1 + i * 0.1 }}
+              transition={{ type: "spring", bounce: 0, duration: 0.6, delay: 0.1 + i * 0.1 }}
             >
               {/* Subtle accent line on top */}
               {!isNeutral && (

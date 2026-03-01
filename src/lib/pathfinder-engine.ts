@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { PATHFINDER_SYSTEM_PROMPT, buildUserMessage, computeDerivedMetrics } from '@/lib/prompts';
-import type { FinancialProfile, CustomFund, PathfinderResult, SearchMetadata, SearchSource, PathfinderAPIResult } from '@/lib/types';
+import type { DerivedMetrics } from '@/lib/prompts';
+import type { FinancialProfile, CustomFund, PathfinderResult, SearchMetadata, SearchSource, PathfinderAPIResult, QuickAction, DebugLog, DebugLogEntry } from '@/lib/types';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -47,52 +48,191 @@ export function parsePathfinderResult(rawText: string): PathfinderResult {
 
 // ── Post-Parse Guardrails ───────────────────────────────────────────────────
 
+/** Normalise account name for matching */
+function normAccount(name: string): string {
+  return name.toLowerCase().replace(/[^a-z]/g, '');
+}
+
+/** Room available to deposit into a registered account */
+function roomFor(account: string, profile: FinancialProfile, metrics: DerivedMetrics): number | null {
+  const norm = normAccount(account);
+  if (norm === 'tfsa') return profile.tfsaRoom;
+  if (norm === 'rrsp') return profile.rrspRoom;
+  if (norm === 'fhsa') return metrics.isFirstTimeBuyer ? Math.max(0, 8000 - profile.fhsaBalance) : 0;
+  if (norm === 'resp') return 2500;
+  return null; // non-registered or custom fund — no room cap
+}
+
+/** Strip leaked prompt internals from derived_from text */
+function sanitizeDerivedFrom(text: string): string {
+  return text
+    .replace(/\bRESEARCH_CONTEXT\b/gi, 'live data')
+    .replace(/\bLIFE_EVENT\b/gi, 'your scenario')
+    .replace(/\bsystem prompt\b/gi, 'guidelines')
+    .trim();
+}
+
+/**
+ * Build a mutable ledger of available balances.
+ * As each action is validated, its cost is deducted so later actions
+ * see the REMAINING balance — not the original.
+ */
+function buildBalanceLedger(
+  profile: FinancialProfile,
+  customFunds: CustomFund[],
+): Map<string, number> {
+  const ledger = new Map<string, number>();
+  ledger.set('chequing', Math.max(0, profile.chequingBalance - 500)); // keep $500 floor
+  ledger.set('savings', profile.savingsBalance);
+  ledger.set('tfsa', profile.tfsaBalance);
+  ledger.set('rrsp', profile.rrspBalance);
+  ledger.set('fhsa', profile.fhsaBalance);
+  ledger.set('nonregistered', profile.nonRegBalance);
+  for (const fund of customFunds) {
+    ledger.set(normAccount(fund.name), fund.balance);
+  }
+  return ledger;
+}
+
+function buildRoomLedger(profile: FinancialProfile, metrics: DerivedMetrics): Map<string, number> {
+  const ledger = new Map<string, number>();
+  ledger.set('tfsa', profile.tfsaRoom);
+  ledger.set('rrsp', profile.rrspRoom);
+  ledger.set('fhsa', metrics.isFirstTimeBuyer ? Math.max(0, 8000 - profile.fhsaBalance) : 0);
+  ledger.set('resp', 2500);
+  return ledger;
+}
+
 function applyPostParseGuardrails(
   result: PathfinderResult,
   profile: FinancialProfile,
   customFunds: CustomFund[],
+  lifeEvent: string,
+  removedActions: string[] = [],
 ): PathfinderResult {
   const metrics = computeDerivedMetrics(profile, customFunds);
+  const balanceLedger = buildBalanceLedger(profile, customFunds);
+  const roomLedger = buildRoomLedger(profile, metrics);
 
-  // Cap action amounts that exceed source balance
+  const validated: QuickAction[] = [];
+
   for (const action of result.quick_actions) {
-    if (action.amount && action.from_account) {
-      const maxMoveable = metrics.maxMoveableByAccount[action.from_account];
-      if (maxMoveable !== undefined && action.amount > maxMoveable) {
-        console.warn(
-          `[Guardrail] Capped "${action.title}": $${action.amount} → $${maxMoveable} (max for ${action.from_account})`,
-        );
-        action.amount = maxMoveable;
-        // Update the title to reflect the capped amount
-        action.title = action.title.replace(
-          /\$[\d,]+/,
-          `$${maxMoveable.toLocaleString('en-CA')}`,
-        );
+    let keep = true;
+    const sourceKey = action.from_account ? normAccount(action.from_account) : null;
+    const destKey = action.to_account ? normAccount(action.to_account) : null;
+
+    // ── FHSA eligibility ──
+    if (destKey === 'fhsa' && !metrics.isFirstTimeBuyer) {
+      removedActions.push(`"${action.title}" — not first-time buyer`);
+      continue;
+    }
+
+    // ── Pay-off: debt must exist ──
+    if (action.type === 'pay_off') {
+      const hint = (action.to_account || action.title || '').toLowerCase();
+      if ((hint.includes('credit') || hint.includes('card')) && profile.creditCardBalance <= 0) {
+        removedActions.push(`"${action.title}" — no credit card balance`);
+        continue;
+      }
+      if (hint.includes('mortgage') && profile.mortgageBalance <= 0) {
+        removedActions.push(`"${action.title}" — no mortgage`);
+        continue;
       }
     }
+
+    // ── Automation: surplus must support it ──
+    if (action.type === 'automate' && action.automation) {
+      if (metrics.monthlySurplus < 100) {
+        removedActions.push(`"${action.title}" — surplus too low ($${Math.round(metrics.monthlySurplus)})`);
+        continue;
+      }
+      if (action.automation.amount > metrics.monthlySurplus * 0.9) {
+        // Cap the automation amount to 80% of surplus instead of removing
+        action.automation.amount = Math.round(metrics.monthlySurplus * 0.8);
+        console.warn(`[Guardrail] Capped automation "${action.title}" to $${action.automation.amount}/mo`);
+      }
+    }
+
+    // ── Source balance check (against running ledger) ──
+    if (sourceKey && action.amount && action.amount > 0) {
+      const available = balanceLedger.get(sourceKey);
+      if (available !== undefined) {
+        if (available <= 0) {
+          removedActions.push(`"${action.title}" — ${action.from_account} has $0 left`);
+          continue;
+        }
+        if (action.amount > available) {
+          console.warn(`[Guardrail] Capped "${action.title}": $${action.amount} → $${available} (remaining in ${action.from_account})`);
+          action.amount = available;
+          action.title = action.title.replace(/\$[\d,.]+/, `$${available.toLocaleString('en-CA')}`);
+        }
+      }
+    }
+
+    // ── Destination room check (against running room ledger) ──
+    if (destKey && action.amount && action.amount > 0 && (action.type === 'move' || action.type === 'create_fund')) {
+      const room = roomLedger.get(destKey);
+      if (room !== undefined) {
+        if (room <= 0) {
+          removedActions.push(`"${action.title}" — $0 room in ${action.to_account}`);
+          continue;
+        }
+        if (action.amount > room) {
+          console.warn(`[Guardrail] Capped "${action.title}" to room: $${action.amount} → $${room} (${action.to_account})`);
+          action.amount = room;
+          action.title = action.title.replace(/\$[\d,.]+/, `$${room.toLocaleString('en-CA')}`);
+        }
+      }
+    }
+
+    // ── Remove $0 or negative amount actions ──
+    if ((action.type === 'move' || action.type === 'pay_off') && action.amount !== undefined && action.amount <= 0) {
+      removedActions.push(`"${action.title}" — capped to $0`);
+      continue;
+    }
+
+    // ── DEDUCT from ledgers so the next action sees remaining balance ──
+    if (sourceKey && action.amount && action.amount > 0) {
+      const prev = balanceLedger.get(sourceKey) ?? 0;
+      balanceLedger.set(sourceKey, Math.max(0, prev - action.amount));
+    }
+    if (destKey && action.amount && action.amount > 0) {
+      const prevRoom = roomLedger.get(destKey);
+      if (prevRoom !== undefined) {
+        roomLedger.set(destKey, Math.max(0, prevRoom - action.amount));
+      }
+    }
+
+    // ── Sanitize derived_from ──
+    action.derived_from = sanitizeDerivedFrom(action.derived_from || '');
+
+    // ── Ensure derived_from includes $ amounts ──
+    if (action.amount && !action.derived_from.includes('$')) {
+      if (action.from_account && action.to_account) {
+        action.derived_from = `${action.from_account} $${action.amount.toLocaleString('en-CA')} → ${action.to_account}`;
+      }
+    }
+
+    validated.push(action);
   }
 
-  // Deduplicate: merge moves to the same destination
-  const seenDest = new Map<string, number>();
-  const deduped: typeof result.quick_actions = [];
+  result.quick_actions = validated;
+
+  // ── Deduplicate moves: only merge if SAME source AND SAME destination ──
+  const seenKey = new Map<string, number>();
+  const deduped: QuickAction[] = [];
   for (const action of result.quick_actions) {
-    if (action.type === 'move' && action.to_account) {
-      const key = action.to_account.toLowerCase();
-      if (seenDest.has(key)) {
-        const firstIdx = seenDest.get(key)!;
+    if (action.type === 'move' && action.to_account && action.from_account) {
+      const key = `${normAccount(action.from_account)}→${normAccount(action.to_account)}`;
+      if (seenKey.has(key)) {
+        const firstIdx = seenKey.get(key)!;
         const first = deduped[firstIdx];
         const combinedAmount = (first.amount ?? 0) + (action.amount ?? 0);
         first.amount = combinedAmount;
-        first.title = first.title.replace(
-          /\$[\d,]+/,
-          `$${combinedAmount.toLocaleString('en-CA')}`,
-        );
+        first.title = first.title.replace(/\$[\d,.]+/, `$${combinedAmount.toLocaleString('en-CA')}`);
         first.why = [first.why, action.why].filter(Boolean).join('. ');
-        console.warn(
-          `[Guardrail] Merged duplicate move to "${action.to_account}": combined $${combinedAmount}`,
-        );
       } else {
-        seenDest.set(key, deduped.length);
+        seenKey.set(key, deduped.length);
         deduped.push(action);
       }
     } else {
@@ -101,12 +241,109 @@ function applyPostParseGuardrails(
   }
   result.quick_actions = deduped;
 
-  // Trim to 5 actions max
-  if (result.quick_actions.length > 5) {
-    console.warn(
-      `[Guardrail] Trimmed quick_actions from ${result.quick_actions.length} to 5`,
-    );
-    result.quick_actions = result.quick_actions.slice(0, 5);
+  // ── Dynamic action count limit based on prompt complexity ──
+  const separators = /\b(and|plus|also|,)\b/gi;
+  const subSituations = lifeEvent.split(separators).filter(s => s.trim().length > 10);
+  const isComplex = subSituations.length >= 3;
+  // Simple = very short, single-verb requests like "max TFSA", "pay off credit card"
+  const wordCount = lifeEvent.split(/\s+/).length;
+  const isSimple = subSituations.length <= 1 && wordCount <= 6;
+  const maxActions = isComplex ? 7 : isSimple ? 2 : 4;
+
+  if (result.quick_actions.length > maxActions) {
+    console.warn(`[Guardrail] Trimmed from ${result.quick_actions.length} to ${maxActions} (complexity: ${isComplex ? 'complex' : isSimple ? 'simple' : 'moderate'}, words: ${wordCount})`);
+    result.quick_actions = result.quick_actions.slice(0, maxActions);
+  }
+
+  // ── Fix account_impacts: correct current_balance to match actual profile ──
+  const actualBalances: Record<string, number> = {
+    'Chequing': profile.chequingBalance,
+    'Savings': profile.savingsBalance,
+    'TFSA': profile.tfsaBalance,
+    'RRSP': profile.rrspBalance,
+    'FHSA': profile.fhsaBalance,
+    'Non-Registered': profile.nonRegBalance,
+  };
+  for (const fund of customFunds) {
+    actualBalances[fund.name] = fund.balance;
+  }
+
+  if (result.account_impacts) {
+    for (const impact of result.account_impacts) {
+      // Coerce balances to numbers and fix null/undefined/NaN
+      impact.current_balance = Number(impact.current_balance);
+      if (!Number.isFinite(impact.current_balance)) {
+        impact.current_balance = 0;
+      }
+      impact.projected_balance = Number(impact.projected_balance);
+      if (!Number.isFinite(impact.projected_balance)) {
+        console.warn(`[Guardrail] Fixed ${impact.account_name} projected_balance: was null/NaN, defaulting to current_balance`);
+        impact.projected_balance = impact.current_balance;
+      }
+
+      // Find the actual balance by matching account name (case-insensitive)
+      const matchKey = Object.keys(actualBalances).find(
+        k => normAccount(k) === normAccount(impact.account_name)
+      );
+      if (matchKey !== undefined) {
+        const actual = actualBalances[matchKey];
+        if (impact.current_balance !== actual) {
+          console.warn(
+            `[Guardrail] Fixed ${impact.account_name} current_balance: AI said $${impact.current_balance}, actual $${actual}`
+          );
+          // Preserve the delta the AI intended, but anchor to real balance
+          const intendedDelta = impact.projected_balance - impact.current_balance;
+          impact.current_balance = actual;
+          impact.projected_balance = actual + intendedDelta;
+        }
+      }
+
+      // Cap projected_balance for registered accounts to actual room
+      const norm = normAccount(impact.account_name);
+      if (norm === 'tfsa') {
+        const maxProjected = profile.tfsaBalance + profile.tfsaRoom;
+        if (impact.projected_balance > maxProjected) {
+          console.warn(`[Guardrail] Capped TFSA projected: $${impact.projected_balance} → $${maxProjected}`);
+          impact.projected_balance = maxProjected;
+        }
+      } else if (norm === 'rrsp') {
+        const maxProjected = profile.rrspBalance + profile.rrspRoom;
+        if (impact.projected_balance > maxProjected) {
+          console.warn(`[Guardrail] Capped RRSP projected: $${impact.projected_balance} → $${maxProjected}`);
+          impact.projected_balance = maxProjected;
+        }
+      } else if (norm === 'fhsa') {
+        const fhsaMax = Math.min(40000, profile.fhsaBalance + Math.max(0, 8000 - profile.fhsaBalance));
+        if (impact.projected_balance > fhsaMax) {
+          console.warn(`[Guardrail] Capped FHSA projected: $${impact.projected_balance} → $${fhsaMax}`);
+          impact.projected_balance = fhsaMax;
+        }
+      }
+      // Ensure projected never goes negative
+      if (impact.projected_balance < 0) impact.projected_balance = 0;
+    }
+  }
+
+  // ── Fix monthly_cashflow: coerce amounts and ensure first phase matches actual surplus ──
+  if (result.monthly_cashflow && result.monthly_cashflow.length > 0) {
+    // Coerce all amounts to numbers (handles strings like "-$1,204")
+    for (const entry of result.monthly_cashflow) {
+      if (typeof entry.amount === 'string') {
+        const stripped = (entry.amount as string).replace(/[^0-9.\-]/g, '');
+        entry.amount = Number(stripped) || 0;
+      } else {
+        entry.amount = Number(entry.amount) || 0;
+      }
+    }
+
+    const actualSurplus = Math.round(metrics.monthlySurplus);
+    const first = result.monthly_cashflow[0];
+    if (first.phase.toLowerCase().includes('current') && first.amount !== actualSurplus) {
+      console.warn(
+        `[Guardrail] Fixed cashflow "Current": AI said $${first.amount}, actual surplus $${actualSurplus}`
+      );
+      first.amount = actualSurplus;
+    }
   }
 
   return result;
@@ -121,11 +358,29 @@ function buildRouterPrompt(
   const m = computeDerivedMetrics(profile, customFunds);
   const customFundNames = customFunds.map(f => f.name).join(', ') || 'none';
 
-  return `You are a financial planning router. You receive a user's full financial context and a life event. Decide whether CURRENT internet data would improve the advice.
+  return `You are a financial planning router. You receive a user's full financial context and a life event. Decide whether CURRENT internet data would materially change the recommended dollar amounts or strategy.
 
 ## Principle
-Search when the user's question depends on data that changes over time (interest rates, housing prices, tuition costs, government program updates, insurance premiums, market conditions, cost of living data, specific business costs) and cannot be answered from their profile alone.
-Do NOT search for standard Canadian tax rules, well-known registered account rules (TFSA/RRSP/FHSA/RESP), standard EI/CCB calculations, or general budgeting math.
+Ask yourself: "Would last year's numbers give wrong advice?" If yes → search.
+
+SEARCH when the plan depends on:
+- Current interest rates, GIC rates, mortgage rates (change weekly)
+- Housing prices in a specific city or region
+- Tuition or program costs at specific institutions
+- Government program updates that may have changed recently
+- Insurance premiums or quotes
+- Specific business startup costs, licensing fees, industry data
+- Cost of living in a specific city (for relocation)
+- Current market conditions affecting investment strategy
+
+DO NOT SEARCH for:
+- Tax bracket math (stable, already in system prompt)
+- TFSA/RRSP/FHSA/RESP rules and limits (already in system prompt for 2026)
+- Standard EI/CCB formulas (already in system prompt)
+- General budgeting or savings rate calculations
+- The user's own numbers (already provided)
+
+When in doubt: search. Cost is 1-2s latency; stale data leads to wrong dollar amounts.
 
 ## User Context
 - Income: $${profile.annualIncome}/yr, Partner: $${profile.partnerIncome}/yr
@@ -141,7 +396,7 @@ Do NOT search for standard Canadian tax rules, well-known registered account rul
 
 ## Output
 Return ONLY valid JSON, no markdown fences:
-{ "needs_search": true/false, "queries": ["search query 1", ...] }
+{ "needs_search": true/false, "reasoning": "one sentence why", "queries": ["search query 1", ...] }
 
 If searching, return 1-3 focused, specific, Canadian-focused queries.`;
 }
@@ -173,6 +428,9 @@ export async function routeQuery(
   try {
     const cleaned = stripMarkdownFences(text);
     const parsed = JSON.parse(cleaned);
+    if (parsed.reasoning) {
+      console.info('[Router] Reasoning:', parsed.reasoning);
+    }
     return {
       needs_search: Boolean(parsed.needs_search),
       queries: Array.isArray(parsed.queries) ? parsed.queries.slice(0, 3) : [],
@@ -234,46 +492,69 @@ Topics:
   };
 }
 
-// ── Step 3: Generate ─────────────────────────────────────────────────────────
+// ── Pre-Think (fast thinking preview) ────────────────────────────────────────
 
-export async function generatePlan(
-  ai: GoogleGenAI,
+import type { ThinkingStep } from '@/lib/types';
+
+const THINKING_PREVIEW_PROMPT = `You are a financial analyst. Analyze the user's financial snapshot and life event. Output ONLY a JSON array of thinking_steps showing your reasoning.
+
+Each step has:
+- "title": 3-5 word label (e.g. "Emergency Fund Check", "Income Impact Analysis")
+- "insights": array of {"text": "ONE punchy line with exact $ amounts", "type": "positive|negative|neutral"}
+
+Rules:
+- 4-6 steps. For multi-scenario events, one step per sub-situation + a synthesis step.
+- Reference EXACT dollar amounts from the user's data.
+- Be specific and concise. No filler.
+- Return ONLY valid JSON array. No markdown fences.
+
+Example output:
+[
+  {"title":"Emergency Buffer","insights":[{"text":"$30K liquid covers 4.2 months of expenses","type":"positive"}]},
+  {"title":"TFSA Opportunity","insights":[{"text":"$7K room available — tax-free growth","type":"positive"},{"text":"Maxing saves ~$350/yr in tax on gains","type":"neutral"}]}
+]`;
+
+export async function generateThinkingPreview(
   profile: FinancialProfile,
   lifeEvent: string,
-  searchContext: string | null,
-  customFunds: CustomFund[],
-): Promise<PathfinderResult> {
-  let userMessage = buildUserMessage(profile, lifeEvent, customFunds);
+  customFunds: CustomFund[] = [],
+): Promise<ThinkingStep[]> {
+  const apiKey = process.env.GOOGLE_API_KEY;
+  if (!apiKey) throw new Error('GOOGLE_API_KEY is not set');
 
-  if (searchContext) {
-    userMessage += `\n\nRESEARCH_CONTEXT (current data from internet search — use these numbers where relevant):\n${searchContext}`;
-  }
-
-  console.info('[Pathfinder] Generating plan:', {
-    income: profile.annualIncome,
-    province: profile.province,
-    event: lifeEvent.slice(0, 80),
-    hasResearch: Boolean(searchContext),
-    customFunds: customFunds.length,
-  });
+  const ai = new GoogleGenAI({ apiKey });
+  const userMessage = buildUserMessage(profile, lifeEvent, customFunds);
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-2.5-flash-lite',
     contents: userMessage,
     config: {
-      systemInstruction: PATHFINDER_SYSTEM_PROMPT,
+      systemInstruction: THINKING_PREVIEW_PROMPT,
       temperature: 0.1,
-      maxOutputTokens: 16384,
+      maxOutputTokens: 2048,
     },
   });
 
-  const textContent = response.text ?? '';
-  if (!textContent) {
-    throw new Error('No text content in Gemini API response');
+  const text = response.text?.trim() ?? '';
+  try {
+    const cleaned = stripMarkdownFences(text);
+    const parsed = JSON.parse(cleaned);
+    if (Array.isArray(parsed)) {
+      return parsed as ThinkingStep[];
+    }
+    // If the model wrapped it in an object
+    if (parsed.thinking_steps && Array.isArray(parsed.thinking_steps)) {
+      return parsed.thinking_steps as ThinkingStep[];
+    }
+    throw new Error('Unexpected format');
+  } catch (err) {
+    console.warn('[PreThink] Failed to parse:', text.slice(0, 300));
+    // Return a reasonable fallback
+    return [
+      { title: 'Analyzing Finances', insights: [{ text: `Reviewing your financial snapshot`, type: 'neutral' }] },
+      { title: 'Running Scenarios', insights: [{ text: `Simulating impact of your life event`, type: 'neutral' }] },
+    ];
   }
-
-  const result = parsePathfinderResult(textContent);
-  return applyPostParseGuardrails(result, profile, customFunds);
 }
 
 // ── Full orchestrator ────────────────────────────────────────────────────────
@@ -287,12 +568,16 @@ export async function runPathfinder(
   if (!apiKey) throw new Error('GOOGLE_API_KEY is not set. Add it to .env to enable AI.');
 
   const ai = new GoogleGenAI({ apiKey });
+  const log: DebugLogEntry[] = [];
+  const removedActions: string[] = [];
 
-  // Step 1: Router (now sees full context)
+  // Step 1: Router
   const route = await routeQuery(ai, profile, lifeEvent, customFunds);
-  console.info('[Router] Decision:', {
-    needs_search: route.needs_search,
-    queries: route.queries,
+  log.push({
+    step: 'Router',
+    detail: route.needs_search
+      ? `Search needed: ${route.queries.join(', ')}`
+      : 'No search needed',
   });
 
   // Step 2: Search if needed
@@ -303,13 +588,61 @@ export async function runPathfinder(
       const searchResult = await searchForContext(ai, route.queries);
       searchContext = searchResult.text;
       searchMetadata = searchResult.metadata;
-      console.info('[Search] Got context:', searchContext.slice(0, 200));
+      log.push({
+        step: 'Search',
+        detail: `Found ${searchResult.metadata.sources.length} sources`,
+        data: searchContext.slice(0, 300),
+      });
     } catch (err) {
-      console.warn('[Search] Google Search failed, proceeding without:', err);
+      log.push({ step: 'Search', detail: 'Search failed, proceeding without' });
     }
   }
 
-  // Step 3: Generate the plan (with guardrails applied post-parse)
-  const result = await generatePlan(ai, profile, lifeEvent, searchContext, customFunds);
-  return { result, searchMetadata };
+  // Step 3: Generate the plan
+  let userMessage = buildUserMessage(profile, lifeEvent, customFunds);
+  if (searchContext) {
+    userMessage += `\n\nRESEARCH_CONTEXT (current data from internet search — use these numbers where relevant):\n${searchContext}`;
+  }
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents: userMessage,
+    config: {
+      systemInstruction: PATHFINDER_SYSTEM_PROMPT,
+      temperature: 0.3,
+      maxOutputTokens: 16384,
+    },
+  });
+
+  const textContent = response.text ?? '';
+  if (!textContent) throw new Error('No text content in Gemini API response');
+
+  const rawResult = parsePathfinderResult(textContent);
+  const actionsBeforeGuardrails = rawResult.quick_actions.length;
+
+  log.push({
+    step: 'Generate',
+    detail: `AI produced ${actionsBeforeGuardrails} actions`,
+    data: rawResult.quick_actions.map(a => a.title).join(' | '),
+  });
+
+  // Step 4: Guardrails
+  const result = applyPostParseGuardrails(rawResult, profile, customFunds, lifeEvent, removedActions);
+
+  if (removedActions.length > 0) {
+    log.push({
+      step: 'Guardrail',
+      detail: `Removed ${removedActions.length}, kept ${result.quick_actions.length}`,
+      data: removedActions.join(' | '),
+    });
+  }
+
+  const debugLog: DebugLog = {
+    entries: log,
+    actionsBeforeGuardrails,
+    actionsAfterGuardrails: result.quick_actions.length,
+    removedActions,
+  };
+
+  return { result, searchMetadata, debugLog };
 }

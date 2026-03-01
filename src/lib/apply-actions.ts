@@ -59,9 +59,19 @@ export function applyConfirmedActions(
   function creditOrCreateFund(name: string, amount: number) {
     const key = resolveAccountKey(name);
     if (key) {
-      credit(key, amount);
-      if (key === 'tfsaBalance') p.tfsaRoom = Math.max(0, p.tfsaRoom - amount);
-      if (key === 'rrspBalance') p.rrspRoom = Math.max(0, p.rrspRoom - amount);
+      // Cap deposits to registered account room
+      let cappedAmount = amount;
+      if (key === 'tfsaBalance') {
+        cappedAmount = Math.min(amount, p.tfsaRoom);
+        p.tfsaRoom = Math.max(0, p.tfsaRoom - cappedAmount);
+      } else if (key === 'rrspBalance') {
+        cappedAmount = Math.min(amount, p.rrspRoom);
+        p.rrspRoom = Math.max(0, p.rrspRoom - cappedAmount);
+      } else if (key === 'fhsaBalance') {
+        const fhsaRoom = Math.max(0, 8000 - (p.fhsaBalance as number));
+        cappedAmount = Math.min(amount, fhsaRoom);
+      }
+      credit(key, cappedAmount);
     } else {
       const existing = funds.find((f) => f.name.toLowerCase() === name.toLowerCase());
       if (existing) {

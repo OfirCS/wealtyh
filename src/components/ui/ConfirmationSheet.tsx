@@ -31,6 +31,7 @@ export default function ConfirmationSheet({
   onCancel,
 }: ConfirmationSheetProps) {
   const [confirmed, setConfirmed] = useState(false);
+  const [isSuccess, setIsSuccess] = useState(false);
   const isTransfer = action.type === "move" || action.type === "pay_off";
   const isAutomation = action.type === "automate" && action.automation;
 
@@ -39,7 +40,14 @@ export default function ConfirmationSheet({
       setConfirmed(true);
       return;
     }
-    onConfirm();
+
+    // Trigger success animation instead of closing immediately
+    setIsSuccess(true);
+
+    // Auto-dismiss after providing satisfying feedback
+    setTimeout(() => {
+      onConfirm();
+    }, 1500);
   };
 
   return (
@@ -115,51 +123,51 @@ export default function ConfirmationSheet({
 
           {/* Automation builder visual */}
           {isAutomation && action.automation && (
-            <div className="bg-[var(--ws-bg-primary)] rounded-[16px] p-4 mb-4">
-              <div className="flex flex-col gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-[#2DE58920] flex items-center justify-center">
-                    <span className="text-[14px]">&#x1F504;</span>
+            <div className="bg-[#1A1A1A] rounded-[24px] p-5 mb-5 border border-[var(--ws-border)] shadow-sm">
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-9 h-9 rounded-full bg-[#183626] flex items-center justify-center border border-[#2DE58920]">
+                    <span className="text-[15px]">&#x1F504;</span>
                   </div>
                   <div>
-                    <p className="text-[11px] text-[var(--ws-text-tertiary)] uppercase tracking-wider">Frequency</p>
-                    <p className="text-[15px] font-semibold text-[var(--ws-text-primary)] capitalize">
+                    <p className="text-[11px] text-[var(--ws-text-tertiary)] uppercase tracking-[0.05em] mb-0.5" style={{ textShadow: "0px 1px 2px rgba(0,0,0,0.5)" }}>Frequency</p>
+                    <p className="text-[16px] font-semibold text-[var(--ws-text-primary)] capitalize">
                       {action.automation.frequency}
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-[#6BA3FF20] flex items-center justify-center">
-                    <span className="text-[14px]">&#x1F4B0;</span>
+                <div className="flex items-center gap-4">
+                  <div className="w-9 h-9 rounded-full bg-[#1C2333] flex items-center justify-center border border-[#6BA3FF20]">
+                    <span className="text-[15px]">&#x1F4B0;</span>
                   </div>
                   <div>
-                    <p className="text-[11px] text-[var(--ws-text-tertiary)] uppercase tracking-wider">Amount each time</p>
-                    <p className="text-[15px] font-semibold text-[var(--ws-text-primary)]">
+                    <p className="text-[11px] text-[var(--ws-text-tertiary)] uppercase tracking-[0.05em] mb-0.5">Amount each time</p>
+                    <p className="text-[16px] font-semibold text-[var(--ws-text-primary)]">
                       {formatAmount(action.automation.amount)}
                     </p>
                   </div>
                 </div>
                 {action.automation.duration_months && (
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-[#FFD60A20] flex items-center justify-center">
-                      <span className="text-[14px]">&#x23F3;</span>
+                  <div className="flex items-center gap-4">
+                    <div className="w-9 h-9 rounded-full bg-[#332A13] flex items-center justify-center border border-[#FFD60A20]">
+                      <span className="text-[15px]">&#x23F3;</span>
                     </div>
                     <div>
-                      <p className="text-[11px] text-[var(--ws-text-tertiary)] uppercase tracking-wider">Duration</p>
-                      <p className="text-[15px] font-semibold text-[var(--ws-text-primary)]">
+                      <p className="text-[11px] text-[var(--ws-text-tertiary)] uppercase tracking-[0.05em] mb-0.5">Duration</p>
+                      <p className="text-[16px] font-semibold text-[var(--ws-text-primary)]">
                         {action.automation.duration_months} months
                       </p>
                     </div>
                   </div>
                 )}
                 {action.automation.target_amount && (
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-[#2DE58920] flex items-center justify-center">
-                      <span className="text-[14px]">&#x1F3AF;</span>
+                  <div className="flex items-center gap-4">
+                    <div className="w-9 h-9 rounded-full bg-[#361818] flex items-center justify-center border border-[#D23A3A20]">
+                      <span className="text-[15px]">&#x1F3AF;</span>
                     </div>
                     <div>
-                      <p className="text-[11px] text-[var(--ws-text-tertiary)] uppercase tracking-wider">Target</p>
-                      <p className="text-[15px] font-semibold text-[var(--ws-text-primary)]">
+                      <p className="text-[11px] text-[var(--ws-text-tertiary)] uppercase tracking-[0.05em] mb-0.5">Target</p>
+                      <p className="text-[16px] font-semibold text-[var(--ws-text-primary)]">
                         {formatAmount(action.automation.target_amount)}
                       </p>
                     </div>
@@ -168,22 +176,22 @@ export default function ConfirmationSheet({
               </div>
               {/* Visual timeline */}
               {action.automation.duration_months && action.automation.target_amount && (
-                <div className="mt-4 pt-3 border-t border-[var(--ws-border)]">
-                  <div className="flex justify-between items-end mb-1.5">
-                    <span className="text-[11px] text-[var(--ws-text-tertiary)]">Now</span>
-                    <span className="text-[11px] text-[var(--ws-text-tertiary)]">
+                <div className="mt-6 pt-5 border-t border-[var(--ws-border)]">
+                  <div className="flex justify-between items-end mb-1.5 px-1">
+                    <span className="text-[12px] text-[var(--ws-text-tertiary)] font-medium">Now</span>
+                    <span className="text-[12px] text-[var(--ws-text-tertiary)] font-medium">
                       {action.automation.duration_months}mo
                     </span>
                   </div>
-                  <div className="h-2 bg-[var(--ws-border)] rounded-full overflow-hidden">
+                  <div className="h-2.5 bg-[#2B2B2A] rounded-full overflow-hidden">
                     <motion.div
-                      className="h-full bg-[var(--ws-accent-green)] rounded-full"
+                      className="h-full bg-[#528A36] rounded-full"
                       initial={{ width: 0 }}
                       animate={{ width: "100%" }}
-                      transition={{ duration: 1.5, ease: "easeOut" }}
+                      transition={{ type: "spring", bounce: 0, duration: 1.5, delay: 0.2 }}
                     />
                   </div>
-                  <p className="text-center text-[13px] font-semibold text-[var(--ws-accent-green)] mt-2">
+                  <p className="text-center text-[13px] font-bold text-[#528A36] mt-2.5 tracking-tight">
                     {formatAmount(action.automation.target_amount)} goal
                   </p>
                 </div>
@@ -236,9 +244,39 @@ export default function ConfirmationSheet({
             {action.why}
           </p>
 
-          {/* Confirmation state for transfers */}
+          {/* Action states (Initial -> Confirm -> Success) */}
           <AnimatePresence mode="wait">
-            {isTransfer && confirmed ? (
+            {isSuccess ? (
+              <motion.div
+                key="success"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="flex flex-col items-center justify-center py-6"
+              >
+                <div className="w-16 h-16 rounded-full bg-[var(--ws-accent-green)] flex items-center justify-center mb-4">
+                  <motion.svg
+                    width="24" height="24" viewBox="0 0 24 24" fill="none"
+                    initial={{ pathLength: 0 }}
+                    animate={{ pathLength: 1 }}
+                    transition={{ duration: 0.5, ease: "easeOut" }}
+                  >
+                    <motion.path
+                      d="M5 13l4 4L19 7"
+                      stroke="white"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </motion.svg>
+                </div>
+                <h3 className="text-[20px] font-bold text-[var(--ws-text-primary)] tracking-tight mb-2">
+                  {isAutomation ? "Automation active" : action.type === "create_fund" ? "Goal created" : action.type === "open_account" ? "Account opened" : "Transfer initiated"}
+                </h3>
+                <p className="text-[14px] text-[var(--ws-text-secondary)] text-center">
+                  Your strategy is in motion.
+                </p>
+              </motion.div>
+            ) : isTransfer && confirmed ? (
               <motion.div
                 key="confirmed"
                 initial={{ opacity: 0, y: 4 }}

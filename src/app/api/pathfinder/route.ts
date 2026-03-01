@@ -19,8 +19,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { result, searchMetadata } = await runPathfinder(body.profile, body.lifeEvent, body.customFunds ?? []);
-    return NextResponse.json({ result, searchMetadata });
+    const { result, searchMetadata, debugLog } = await runPathfinder(body.profile, body.lifeEvent, body.customFunds ?? []);
+    return NextResponse.json({ result, searchMetadata, debugLog });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : 'Internal server error';

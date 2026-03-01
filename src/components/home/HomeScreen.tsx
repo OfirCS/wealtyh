@@ -14,7 +14,26 @@ interface HomeScreenProps {
   customFunds: CustomFund[];
   appliedSummary?: AppliedSummary;
   onProfileChange: (profile: FinancialProfile) => void;
+  onCustomFundsChange: (customFunds: CustomFund[]) => void;
   onSubmit: (event: string) => void;
+}
+
+function RemoveButton({ onRemove }: { onRemove: () => void }) {
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onRemove();
+      }}
+      className="absolute -top-2.5 -right-2.5 w-8 h-8 flex items-center justify-center rounded-full bg-[var(--ws-bg-primary)] shadow-[0_4px_12px_rgba(0,0,0,0.12)] border border-[#D94343]/20 text-[#D94343] opacity-100 md:opacity-0 group-hover:opacity-100 hover:bg-[#D94343] hover:text-white transition-all duration-300 z-10 hover:scale-110 active:scale-90"
+      aria-label="Remove account"
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
+    </button>
+  );
 }
 
 function BalanceChange({ delta }: { delta: number }) {
@@ -71,6 +90,7 @@ export default function HomeScreen({
   customFunds,
   appliedSummary,
   onProfileChange,
+  onCustomFundsChange,
   onSubmit,
 }: HomeScreenProps) {
   const [isEditing, setIsEditing] = useState(false);
@@ -118,10 +138,10 @@ export default function HomeScreen({
         {!isEditing ? (
           <motion.div
             key="display"
-            initial={{ opacity: 0, y: 12 }}
+            initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.3, ease: "easeOut" }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ type: "spring", bounce: 0, duration: 0.6 }}
             className="flex flex-col gap-2.5"
           >
             <div className="flex justify-between items-start mb-6 px-1 mt-4">
@@ -151,7 +171,7 @@ export default function HomeScreen({
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: 0.3, ease: "easeOut" }}
+                  transition={{ type: "spring", bounce: 0, duration: 0.5 }}
                   className="overflow-hidden"
                 >
                   <div
@@ -185,252 +205,343 @@ export default function HomeScreen({
             </AnimatePresence>
 
             {/* Credit Card Card */}
-            <div className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex items-center justify-between cursor-pointer">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 bg-[#32302F] rounded-[8px] flex items-center justify-center shadow-inner">
-                  <span className="text-white font-bold text-[18px]">W</span>
-                </div>
-                <span className="text-[17px] font-semibold text-[var(--ws-text-primary)]">Credit card</span>
-              </div>
-              <div className="flex flex-col items-end">
-                <span className="text-[17px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.creditCardBalance)}</span>
-                <span className="text-[13px] font-bold text-[#148749] tracking-tight">+$57.64 cash back</span>
-              </div>
-            </div>
-
-            {/* Chequing Collapsible Card */}
-            <div
-              className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex flex-col cursor-pointer transition-all duration-300"
-              onClick={() => setChequingExpanded(!chequingExpanded)}
-            >
-              <div className={`flex items-center justify-between transition-all duration-300 ${chequingExpanded ? "mb-4" : ""}`}>
-                <span className="text-[17px] font-semibold text-[var(--ws-text-secondary)]">Chequing</span>
-                <div className="flex flex-col items-end">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[17px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.chequingBalance)}</span>
-                    <div className="w-7 h-7 rounded-[8px] bg-[#32302F] flex items-center justify-center text-[var(--ws-text-primary)] transition-transform duration-300">
-                      {chequingExpanded ? (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="rotate-180 transition-transform">
-                          <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      ) : (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="transition-transform">
-                          <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      )}
-                    </div>
-                  </div>
-                  {showSummary && appliedSummary?.balanceChanges.chequingBalance && (
-                    <BalanceChange delta={appliedSummary.balanceChanges.chequingBalance} />
-                  )}
-                </div>
-              </div>
-
-              <AnimatePresence>
-                {chequingExpanded && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2, ease: "easeInOut" }}
-                    className="overflow-hidden"
-                  >
-                    <div className="flex flex-col gap-4 mt-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex flex-col">
-                          <span className="text-[20px] mb-1">{"\u{1F4B3}"}</span>
-                          <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">Main Chequing</span>
-                        </div>
-                        <div className="flex flex-col items-end">
-                          <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.chequingBalance * 0.85)}</span>
-                          <span className="text-[13px] text-[var(--ws-text-tertiary)]">Everyday spending</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="flex flex-col">
-                          <span className="text-[20px] mb-1">{"\u{1F3E6}"}</span>
-                          <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">Joint Account</span>
-                        </div>
-                        <div className="flex flex-col items-end">
-                          <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.chequingBalance * 0.15)}</span>
-                          <span className="text-[13px] text-[var(--ws-text-tertiary)]">Shared expenses</span>
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            {/* USD Savings Card */}
-            <div className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex items-end justify-between cursor-pointer">
-              <div className="flex flex-col gap-1">
-                <span className="text-[18px]" role="img" aria-label="US Flag">{"\uD83C\uDDFA\uD83C\uDDF8"}</span>
-                <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">USD savings</span>
-              </div>
-              <div className="flex flex-col items-end">
-                <span className="text-[17px] font-bold text-[var(--ws-text-primary)] pb-0.5">{formatCurrency(p.savingsBalance)} USD</span>
-                {showSummary && appliedSummary?.balanceChanges.savingsBalance && (
-                  <BalanceChange delta={appliedSummary.balanceChanges.savingsBalance} />
-                )}
-              </div>
-            </div>
-
-            {/* TFSA Collapsible Card */}
-            <div
-              className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex flex-col cursor-pointer transition-all duration-300"
-              onClick={() => setTfsaExpanded(!tfsaExpanded)}
-            >
-              <div className={`flex items-center justify-between transition-all duration-300 ${tfsaExpanded ? "mb-4" : ""}`}>
-                <span className="text-[17px] font-semibold text-[var(--ws-text-secondary)]">TFSA</span>
-                <div className="flex flex-col items-end">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[17px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.tfsaBalance)}</span>
-                    <div className="w-7 h-7 rounded-[8px] bg-[#32302F] flex items-center justify-center text-[var(--ws-text-primary)] transition-transform duration-300">
-                      {tfsaExpanded ? (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="rotate-180 transition-transform">
-                          <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      ) : (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="transition-transform">
-                          <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      )}
-                    </div>
-                  </div>
-                  {showSummary && appliedSummary?.balanceChanges.tfsaBalance && (
-                    <BalanceChange delta={appliedSummary.balanceChanges.tfsaBalance} />
-                  )}
-                </div>
-              </div>
-
-              <AnimatePresence>
-                {tfsaExpanded && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2, ease: "easeInOut" }}
-                    className="overflow-hidden"
-                  >
-                    <div className="flex flex-col gap-4 mt-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex flex-col">
-                          <span className="text-[20px] mb-1">{"\u2708\uFE0F"}</span>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">TFSA</span>
-                            <span className="px-1.5 py-0.5 bg-[var(--ws-bg-primary)] rounded font-semibold text-[11px] text-[var(--ws-text-primary)] tracking-wide">Managed</span>
-                          </div>
-                        </div>
-                        <div className="flex flex-col items-end">
-                          <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.tfsaBalance * 0.25)}</span>
-                          <span className="text-[13px] font-bold text-[#148749] tracking-tight">+29.92% all time</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="flex flex-col">
-                          <span className="text-[20px] mb-1">{"\uD83C\uDFE6"}</span>
-                          <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">TFSA</span>
-                        </div>
-                        <div className="flex flex-col items-end">
-                          <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.tfsaBalance * 0.62)}</span>
-                          <span className="text-[13px] font-bold text-[#148749] tracking-tight">+20.67% all time</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="flex flex-col">
-                          <span className="text-[20px] mb-1">{"\uD83D\uDC76\uD83C\uDFFB"}</span>
-                          <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">TFSA</span>
-                        </div>
-                        <div className="flex flex-col items-end">
-                          <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.tfsaBalance * 0.13)}</span>
-                          <span className="text-[13px] font-bold text-[#148749] tracking-tight">+6.17% all time</span>
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            {/* FHSA */}
-            <div className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex items-end justify-between cursor-pointer">
-              <div className="flex flex-col gap-1">
-                <span className="text-[20px]">{"\uD83C\uDFE0"}</span>
-                <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">FHSA</span>
-              </div>
-              <div className="flex flex-col items-end">
-                <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.fhsaBalance)}</span>
-                <span className="text-[13px] font-bold text-[#148749] tracking-tight">+5.07% all time</span>
-                {showSummary && appliedSummary?.balanceChanges.fhsaBalance && (
-                  <BalanceChange delta={appliedSummary.balanceChanges.fhsaBalance} />
-                )}
-              </div>
-            </div>
-
-            {/* RRSP */}
-            <div className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex items-end justify-between cursor-pointer">
-              <div className="flex flex-col gap-1">
-                <span className="text-[20px]">{"\u26D4\uFE0F"}</span>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">RRSP</span>
-                  <span className="px-1.5 py-0.5 bg-[var(--ws-bg-primary)] rounded font-semibold text-[11px] text-[var(--ws-text-primary)] tracking-wide">Managed</span>
-                </div>
-              </div>
-              <div className="flex flex-col items-end">
-                <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.rrspBalance)}</span>
-                <span className="text-[13px] font-bold text-[#148749] tracking-tight">+26.15% all time</span>
-                {showSummary && appliedSummary?.balanceChanges.rrspBalance && (
-                  <BalanceChange delta={appliedSummary.balanceChanges.rrspBalance} />
-                )}
-              </div>
-            </div>
-
-            {/* Custom Funds (created via confirmed actions) */}
-            {customFunds.map((fund, i) => {
-              const isNew = showSummary && appliedSummary?.newFundNames.includes(fund.name);
-              const fundDelta = showSummary ? appliedSummary?.fundChanges[fund.name] : undefined;
-              return (
+            <AnimatePresence>
+              {p.creditCardBalance > 0 && (
                 <motion.div
-                  key={fund.name + i}
-                  className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex items-end justify-between cursor-pointer"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3, delay: 0.05 * i, ease: "easeOut" as const }}
+                  layout
+                  initial={{ opacity: 0, scale: 0.95, filter: "blur(4px)" }}
+                  animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, scale: 0.9, height: 0, filter: "blur(8px)", marginBottom: 0 }}
+                  transition={{ type: "spring", bounce: 0, duration: 0.5 }}
+                  className="relative group w-full"
                 >
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[20px]">{fund.emoji || "\u{1F4B0}"}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">{fund.name}</span>
-                      {isNew && (
-                        <span
-                          className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full"
-                          style={{ backgroundColor: "rgba(20, 135, 73, 0.12)", color: "#148749" }}
-                        >
-                          New
-                        </span>
-                      )}
+                  <RemoveButton onRemove={() => onProfileChange({ ...p, creditCardBalance: 0 })} />
+                  <div className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex items-center justify-between cursor-pointer w-full">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 bg-[#32302F] rounded-[8px] flex items-center justify-center shadow-inner">
+                        <span className="text-white font-bold text-[18px]">W</span>
+                      </div>
+                      <span className="text-[17px] font-semibold text-[var(--ws-text-primary)]">Credit card</span>
                     </div>
-                  </div>
-                  <div className="flex flex-col items-end">
-                    <span className="text-[16px] font-bold text-[var(--ws-text-primary)] pb-0.5">{formatCurrency(fund.balance)}</span>
-                    {fundDelta ? <BalanceChange delta={fundDelta} /> : null}
+                    <div className="flex flex-col items-end">
+                      <span className="text-[17px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.creditCardBalance)}</span>
+                      <span className="text-[13px] font-bold text-[#148749] tracking-tight">+$57.64 cash back</span>
+                    </div>
                   </div>
                 </motion.div>
-              );
-            })}
+              )}
+            </AnimatePresence>
+
+            {/* Chequing Collapsible Card */}
+            <AnimatePresence>
+              {p.chequingBalance > 0 && (
+                <motion.div
+                  layout
+                  initial={{ opacity: 0, scale: 0.95, filter: "blur(4px)" }}
+                  animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, scale: 0.9, height: 0, filter: "blur(8px)", marginBottom: 0 }}
+                  transition={{ type: "spring", bounce: 0, duration: 0.5 }}
+                  className="relative group w-full"
+                >
+                  <RemoveButton onRemove={() => onProfileChange({ ...p, chequingBalance: 0 })} />
+                  <div
+                    className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex flex-col cursor-pointer transition-all duration-300 w-full"
+                    onClick={() => setChequingExpanded(!chequingExpanded)}
+                  >
+                    <div className={`flex items-center justify-between transition-all duration-300 ${chequingExpanded ? "mb-4" : ""}`}>
+                      <span className="text-[17px] font-semibold text-[var(--ws-text-secondary)]">Chequing</span>
+                      <div className="flex flex-col items-end">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[17px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.chequingBalance)}</span>
+                          <div className="w-7 h-7 rounded-[8px] bg-[#32302F] flex items-center justify-center text-[var(--ws-text-primary)] transition-transform duration-300">
+                            {chequingExpanded ? (
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="rotate-180 transition-transform">
+                                <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            ) : (
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="transition-transform">
+                                <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            )}
+                          </div>
+                        </div>
+                        {showSummary && appliedSummary?.balanceChanges.chequingBalance && (
+                          <BalanceChange delta={appliedSummary.balanceChanges.chequingBalance} />
+                        )}
+                      </div>
+                    </div>
+
+                    <AnimatePresence>
+                      {chequingExpanded && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ type: "spring", bounce: 0, duration: 0.5 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="flex flex-col gap-4 mt-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex flex-col">
+                                <span className="text-[20px] mb-1">{"\u{1F4B3}"}</span>
+                                <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">Main Chequing</span>
+                              </div>
+                              <div className="flex flex-col items-end">
+                                <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.chequingBalance * 0.85)}</span>
+                                <span className="text-[13px] text-[var(--ws-text-tertiary)]">Everyday spending</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                              <div className="flex flex-col">
+                                <span className="text-[20px] mb-1">{"\u{1F3E6}"}</span>
+                                <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">Joint Account</span>
+                              </div>
+                              <div className="flex flex-col items-end">
+                                <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.chequingBalance * 0.15)}</span>
+                                <span className="text-[13px] text-[var(--ws-text-tertiary)]">Shared expenses</span>
+                              </div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* USD Savings Card */}
+            <AnimatePresence>
+              {p.savingsBalance > 0 && (
+                <motion.div
+                  layout
+                  initial={{ opacity: 0, scale: 0.95, filter: "blur(4px)" }}
+                  animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, scale: 0.9, height: 0, filter: "blur(8px)", marginBottom: 0 }}
+                  transition={{ type: "spring", bounce: 0, duration: 0.5 }}
+                  className="relative group w-full"
+                >
+                  <RemoveButton onRemove={() => onProfileChange({ ...p, savingsBalance: 0 })} />
+                  <div className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex items-end justify-between cursor-pointer w-full">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[18px]" role="img" aria-label="US Flag">{"\uD83C\uDDFA\uD83C\uDDF8"}</span>
+                      <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">USD savings</span>
+                    </div>
+                    <div className="flex flex-col items-end">
+                      <span className="text-[17px] font-bold text-[var(--ws-text-primary)] pb-0.5">{formatCurrency(p.savingsBalance)} USD</span>
+                      {showSummary && appliedSummary?.balanceChanges.savingsBalance && (
+                        <BalanceChange delta={appliedSummary.balanceChanges.savingsBalance} />
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* TFSA Collapsible Card */}
+            <AnimatePresence>
+              {p.tfsaBalance > 0 && (
+                <motion.div
+                  layout
+                  initial={{ opacity: 0, scale: 0.95, filter: "blur(4px)" }}
+                  animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, scale: 0.9, height: 0, filter: "blur(8px)", marginBottom: 0 }}
+                  transition={{ type: "spring", bounce: 0, duration: 0.5 }}
+                  className="relative group w-full"
+                >
+                  <RemoveButton onRemove={() => onProfileChange({ ...p, tfsaBalance: 0 })} />
+                  <div
+                    className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex flex-col cursor-pointer transition-all duration-300 w-full"
+                    onClick={() => setTfsaExpanded(!tfsaExpanded)}
+                  >
+                    <div className={`flex items-center justify-between transition-all duration-300 ${tfsaExpanded ? "mb-4" : ""}`}>
+                      <span className="text-[17px] font-semibold text-[var(--ws-text-secondary)]">TFSA</span>
+                      <div className="flex flex-col items-end">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[17px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.tfsaBalance)}</span>
+                          <div className="w-7 h-7 rounded-[8px] bg-[#32302F] flex items-center justify-center text-[var(--ws-text-primary)] transition-transform duration-300">
+                            {tfsaExpanded ? (
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="rotate-180 transition-transform">
+                                <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            ) : (
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="transition-transform">
+                                <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            )}
+                          </div>
+                        </div>
+                        {showSummary && appliedSummary?.balanceChanges.tfsaBalance && (
+                          <BalanceChange delta={appliedSummary.balanceChanges.tfsaBalance} />
+                        )}
+                      </div>
+                    </div>
+
+                    <AnimatePresence>
+                      {tfsaExpanded && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ type: "spring", bounce: 0, duration: 0.5 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="flex flex-col gap-4 mt-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex flex-col">
+                                <span className="text-[20px] mb-1">{"\u2708\uFE0F"}</span>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">TFSA</span>
+                                  <span className="px-1.5 py-0.5 bg-[var(--ws-bg-primary)] rounded font-semibold text-[11px] text-[var(--ws-text-primary)] tracking-wide">Managed</span>
+                                </div>
+                              </div>
+                              <div className="flex flex-col items-end">
+                                <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.tfsaBalance * 0.25)}</span>
+                                <span className="text-[13px] font-bold text-[#148749] tracking-tight">+29.92% all time</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                              <div className="flex flex-col">
+                                <span className="text-[20px] mb-1">{"\uD83C\uDFE6"}</span>
+                                <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">TFSA</span>
+                              </div>
+                              <div className="flex flex-col items-end">
+                                <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.tfsaBalance * 0.62)}</span>
+                                <span className="text-[13px] font-bold text-[#148749] tracking-tight">+20.67% all time</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                              <div className="flex flex-col">
+                                <span className="text-[20px] mb-1">{"\uD83D\uDC76\uD83C\uDFFB"}</span>
+                                <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">TFSA</span>
+                              </div>
+                              <div className="flex flex-col items-end">
+                                <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.tfsaBalance * 0.13)}</span>
+                                <span className="text-[13px] font-bold text-[#148749] tracking-tight">+6.17% all time</span>
+                              </div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* FHSA */}
+            <AnimatePresence>
+              {p.fhsaBalance > 0 && (
+                <motion.div
+                  layout
+                  initial={{ opacity: 0, scale: 0.95, filter: "blur(4px)" }}
+                  animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, scale: 0.9, height: 0, filter: "blur(8px)", marginBottom: 0 }}
+                  transition={{ type: "spring", bounce: 0, duration: 0.5 }}
+                  className="relative group w-full"
+                >
+                  <RemoveButton onRemove={() => onProfileChange({ ...p, fhsaBalance: 0 })} />
+                  <div className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex items-end justify-between cursor-pointer w-full">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[20px]">{"\uD83C\uDFE0"}</span>
+                      <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">FHSA</span>
+                    </div>
+                    <div className="flex flex-col items-end">
+                      <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.fhsaBalance)}</span>
+                      <span className="text-[13px] font-bold text-[#148749] tracking-tight">+5.07% all time</span>
+                      {showSummary && appliedSummary?.balanceChanges.fhsaBalance && (
+                        <BalanceChange delta={appliedSummary.balanceChanges.fhsaBalance} />
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* RRSP */}
+            <AnimatePresence>
+              {p.rrspBalance > 0 && (
+                <motion.div
+                  layout
+                  initial={{ opacity: 0, scale: 0.95, filter: "blur(4px)" }}
+                  animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, scale: 0.9, height: 0, filter: "blur(8px)", marginBottom: 0 }}
+                  transition={{ type: "spring", bounce: 0, duration: 0.5 }}
+                  className="relative group w-full"
+                >
+                  <RemoveButton onRemove={() => onProfileChange({ ...p, rrspBalance: 0 })} />
+                  <div className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex items-end justify-between cursor-pointer w-full">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[20px]">{"\u26D4\uFE0F"}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">RRSP</span>
+                        <span className="px-1.5 py-0.5 bg-[var(--ws-bg-primary)] rounded font-semibold text-[11px] text-[var(--ws-text-primary)] tracking-wide">Managed</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end">
+                      <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.rrspBalance)}</span>
+                      <span className="text-[13px] font-bold text-[#148749] tracking-tight">+26.15% all time</span>
+                      {showSummary && appliedSummary?.balanceChanges.rrspBalance && (
+                        <BalanceChange delta={appliedSummary.balanceChanges.rrspBalance} />
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Custom Funds (created via confirmed actions) */}
+            <AnimatePresence>
+              {customFunds.map((fund, i) => {
+                const isNew = showSummary && appliedSummary?.newFundNames.includes(fund.name);
+                const fundDelta = showSummary ? appliedSummary?.fundChanges[fund.name] : undefined;
+                return (
+                  <motion.div
+                    layout
+                    key={fund.name + i}
+                    initial={{ opacity: 0, scale: 0.95, filter: "blur(4px)" }}
+                    animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                    exit={{ opacity: 0, scale: 0.9, height: 0, filter: "blur(8px)", marginBottom: 0 }}
+                    transition={{ type: "spring", bounce: 0, duration: 0.6, delay: 0.05 * i }}
+                    className="relative group w-full"
+                  >
+                    <RemoveButton onRemove={() => onCustomFundsChange(customFunds.filter(f => f.name !== fund.name))} />
+                    <div className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex items-end justify-between cursor-pointer w-full">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[20px]">{fund.emoji || "\u{1F4B0}"}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">{fund.name}</span>
+                          {isNew && (
+                            <span
+                              className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full"
+                              style={{ backgroundColor: "rgba(20, 135, 73, 0.12)", color: "#148749" }}
+                            >
+                              New
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end">
+                        <span className="text-[16px] font-bold text-[var(--ws-text-primary)] pb-0.5">{formatCurrency(fund.balance)}</span>
+                        {fundDelta ? <BalanceChange delta={fundDelta} /> : null}
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
           </motion.div>
         ) : (
           /* ── EDIT MODE ── */
           <motion.div
             key="edit"
-            initial={{ opacity: 0, y: 12 }}
+            initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.3, ease: "easeOut" }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ type: "spring", bounce: 0, duration: 0.6 }}
             className="flex flex-col gap-4"
           >
             {/* Edit header */}
@@ -510,7 +621,7 @@ export default function HomeScreen({
                     />
                   </div>
                   <p className="text-[12px] text-[var(--ws-text-tertiary)] mt-4 leading-relaxed">
-                    Used to calculate tax brackets, benefits, and provincial rules.
+                    Used for tax and benefit calculations.
                   </p>
                 </motion.div>
               )}
@@ -671,7 +782,7 @@ export default function HomeScreen({
             initial={{ scale: 0, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 260, damping: 20 }}
+            transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
             className="fixed bottom-6 right-6 sm:bottom-10 sm:right-10 z-40 flex flex-col items-center gap-2"
           >
             <button
@@ -716,7 +827,9 @@ export default function HomeScreen({
               <PromptInput
                 onSubmit={(val) => {
                   setShowPromptOverlay(false);
-                  onSubmit(val);
+                  setTimeout(() => {
+                    onSubmit(val);
+                  }, 300);
                 }}
                 chips={SUGGESTION_CHIPS}
               />

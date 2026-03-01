@@ -59,6 +59,7 @@ export interface ActionAutomation {
 export interface QuickAction {
   title: string;          // "Move $2,000 → Emergency Fund"
   why: string;            // "Buffer for months 7-10 when cashflow dips"
+  derived_from: string;   // "Savings $18K ÷ $5.1K/mo expenses = 3.5mo buffer → move $2K keeps 3.1mo"
   type: 'move' | 'create_fund' | 'automate' | 'open_account' | 'pause' | 'adjust' | 'pay_off';
   amount?: number;
   from_account?: string;
@@ -121,9 +122,25 @@ export interface SearchMetadata {
   sources: SearchSource[];
 }
 
+// ===== Debug Log (decision trace for transparency) =====
+
+export interface DebugLogEntry {
+  step: string;       // "Router" | "Search" | "Generate" | "Guardrail"
+  detail: string;     // What happened
+  data?: string;      // Optional raw data
+}
+
+export interface DebugLog {
+  entries: DebugLogEntry[];
+  actionsBeforeGuardrails: number;
+  actionsAfterGuardrails: number;
+  removedActions: string[];
+}
+
 export interface PathfinderAPIResult {
   result: PathfinderResult;
   searchMetadata: SearchMetadata | null;
+  debugLog: DebugLog;
 }
 
 // ===== Custom Funds (created via actions) =====
@@ -148,16 +165,17 @@ export interface AppliedSummary {
 export type AppState =
   | { step: 'home'; profile: FinancialProfile; customFunds: CustomFund[]; appliedSummary?: AppliedSummary }
   | { step: 'thinking'; profile: FinancialProfile; customFunds: CustomFund[]; event: string }
-  | { step: 'plan'; profile: FinancialProfile; customFunds: CustomFund[]; event: string; result: PathfinderResult; searchMetadata: SearchMetadata | null }
+  | { step: 'plan'; profile: FinancialProfile; customFunds: CustomFund[]; event: string; result: PathfinderResult; searchMetadata: SearchMetadata | null; debugLog: DebugLog | null }
   | { step: 'error'; profile: FinancialProfile; customFunds: CustomFund[]; event: string; message: string };
 
 export type AppAction =
   | { type: 'SUBMIT_EVENT'; event: string }
   | { type: 'UPDATE_PROFILE'; profile: FinancialProfile }
-  | { type: 'COMPLETE_THINKING'; result: PathfinderResult; searchMetadata: SearchMetadata | null }
+  | { type: 'COMPLETE_THINKING'; result: PathfinderResult; searchMetadata: SearchMetadata | null; debugLog: DebugLog | null }
   | { type: 'THINKING_ERROR'; message: string }
   | { type: 'RESET' }
-  | { type: 'APPLY_ACTIONS'; confirmedIndices: number[]; actions: QuickAction[] };
+  | { type: 'APPLY_ACTIONS'; confirmedIndices: number[]; actions: QuickAction[] }
+  | { type: 'UPDATE_CUSTOM_FUNDS'; customFunds: CustomFund[] };
 
 // ===== Suggestion Chip =====
 
