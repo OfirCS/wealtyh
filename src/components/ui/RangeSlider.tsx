@@ -24,24 +24,26 @@ export default function RangeSlider({
     };
 
     return (
-        <div className="flex flex-col gap-2.5 bg-[var(--ws-bg-surface)] p-3.5 rounded-[12px] border border-[var(--ws-border)] shadow-sm">
-            <div className="flex justify-between items-center">
-                <label className="text-[14px] font-medium text-[var(--ws-text-secondary)]">
+        <div className="flex flex-col gap-3 py-2">
+            <div className="flex justify-between items-center px-1">
+                <label className="text-[13px] font-semibold tracking-wide text-[var(--ws-text-secondary)]">
                     {label}
                 </label>
-                <span className="text-[15px] font-bold text-[var(--ws-text-primary)] tabular-nums">
+                <span className="text-[16px] font-bold text-[var(--ws-text-primary)] tabular-nums">
                     {formatValue(value)}
                 </span>
             </div>
-            <input
-                type="range"
-                min={min}
-                max={max}
-                step={step}
-                value={value}
-                onChange={handleChange}
-                className="w-full h-1.5 bg-[var(--ws-border)] rounded-full appearance-none cursor-pointer accent-[var(--ws-text-primary)] outline-none"
-            />
+            <div className="px-1">
+                <input
+                    type="range"
+                    min={min}
+                    max={max}
+                    step={step}
+                    value={value}
+                    onChange={handleChange}
+                    className="w-full h-2 bg-[var(--ws-border)] rounded-full appearance-none cursor-pointer accent-[var(--ws-text-primary)] outline-none hover:opacity-90 transition-opacity"
+                />
+            </div>
         </div>
     );
 }

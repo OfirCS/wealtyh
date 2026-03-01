@@ -1,16 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import type { PathfinderResult, QuickAction, RiskWarning, SearchMetadata, ThinkingStep, DebugLog } from "@/lib/types";
+import type { PathfinderResult, QuickAction, RiskWarning, SearchMetadata, ThinkingStep, DebugLog, FinancialProfile, CustomFund } from "@/lib/types";
 import ImpactSummary from "./ImpactSummary";
 import AccountImpactCards from "./AccountImpactCards";
 import CashflowCard from "./CashflowSidebar";
 import ConfirmationSheet from "@/components/ui/ConfirmationSheet";
+import WhatIfInput from "./WhatIfInput";
 
 interface PlanViewProps {
   result: PathfinderResult;
   event: string;
+  profile: FinancialProfile;
+  customFunds: CustomFund[];
   searchMetadata: SearchMetadata | null;
   debugLog: DebugLog | null;
   onReset: () => void;
@@ -35,10 +38,10 @@ const PRIORITY_COLORS: Record<QuickAction["priority"], string> = {
 };
 
 const PRIORITY_TEXT_COLORS: Record<QuickAction["priority"], string> = {
-  do_now: "#1D1D1C",
-  this_week: "#FCFCFC",
-  this_month: "#FCFCFC",
-  next_quarter: "#9B9B9A",
+  do_now: "var(--ws-text-inverse)",
+  this_week: "var(--ws-text-inverse)",
+  this_month: "var(--ws-text-inverse)",
+  next_quarter: "var(--ws-text-tertiary)",
 };
 
 const PRIORITY_LABELS: Record<QuickAction["priority"], string> = {
@@ -59,60 +62,82 @@ function ActionCard({
 }) {
   return (
     <motion.button
-      className="group w-full bg-transparent flex items-start gap-4 sm:gap-5 text-left cursor-pointer transition-all"
+      className={`group w-full flex items-start gap-3 sm:gap-4 text-left cursor-pointer transition-all p-3 -mx-3 rounded-[16px] ${action.priority === 'do_now'
+        ? 'bg-[var(--ws-bg-primary)] border border-[var(--ws-accent-green)]/30 shadow-[0_4px_24px_rgba(72,102,53,0.12)]'
+        : 'bg-transparent hover:bg-[var(--ws-bg-primary)] border border-transparent'
+        }`}
       initial={{ opacity: 0, x: -15 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ type: "spring", bounce: 0, duration: 0.6, delay: 0.05 * index }}
       onClick={onTap}
     >
       {/* Icon */}
-      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center flex-shrink-0 text-[18px] sm:text-[20px] bg-[var(--ws-bg-primary)] text-[var(--ws-text-primary)] border border-[var(--ws-border)]">
+      <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center flex-shrink-0 text-[16px] sm:text-[18px] bg-[var(--ws-bg-primary)] text-[var(--ws-text-primary)] border border-[var(--ws-border)]">
         {ACTION_ICONS[action.type]}
       </div>
 
       {/* Content */}
-      <div className="flex-1 min-w-0 pt-0.5 pb-4">
-        <p className="font-serif text-[18px] sm:text-[20px] text-[var(--ws-text-primary)] leading-tight tracking-tight mt-1 sm:mt-1 group-hover:text-[var(--ws-text-secondary)] transition-colors">
+      <div className="flex-1 min-w-0 pt-0.5 pb-1">
+        <p className="font-serif text-[16px] sm:text-[18px] text-[var(--ws-text-primary)] leading-tight tracking-tight mt-0.5 group-hover:text-[var(--ws-text-secondary)] transition-colors">
           {action.title}
         </p>
-        {action.why && (
-          <p className="text-[13px] text-[var(--ws-text-secondary)] mt-1 leading-snug">
-            {action.why}
-          </p>
-        )}
-        {action.derived_from && (
-          <div className="flex items-start gap-1.5 mt-1.5 px-2.5 py-1.5 rounded-[10px] bg-[var(--ws-bg-primary)] border border-[var(--ws-border)]">
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="flex-shrink-0 mt-0.5 text-[var(--ws-text-tertiary)]">
-              <path d="M8 1C4.134 1 1 4.134 1 8s3.134 7 7 7 7-3.134 7-7-3.134-7-7-7z" stroke="currentColor" strokeWidth="1.5" />
-              <path d="M8 5v3M8 10.5h.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-            <p className="text-[11px] text-[var(--ws-text-tertiary)] leading-snug">
-              {action.derived_from}
+
+        <div className="flex flex-col gap-1.5 mt-2">
+          {/* Account Details */}
+          {(action.from_account || action.to_account) && (
+            <div className="flex flex-wrap items-center gap-1.5 text-[12px] font-medium text-[var(--ws-text-primary)]">
+              {action.from_account && (
+                <span className="px-2 py-0.5 rounded-md bg-[var(--ws-bg-surface)] border border-[var(--ws-border)]">
+                  {action.from_account}
+                </span>
+              )}
+              {action.from_account && action.to_account && (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="text-[var(--ws-text-tertiary)] shrink-0">
+                  <path d="M5 12H19M19 12L13 6M19 12L13 18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+              {action.to_account && (
+                <span className="px-2 py-0.5 rounded-md bg-[var(--ws-bg-surface)] border border-[var(--ws-border)]">
+                  {action.to_account}
+                </span>
+              )}
+              {typeof action.amount === 'number' && action.amount > 0 && (
+                <span className="ml-1 text-[var(--ws-accent-green)] font-semibold">
+                  ${action.amount.toLocaleString("en-CA")}
+                </span>
+              )}
+            </div>
+          )}
+
+          {action.why && (
+            <p className="text-[13px] text-[var(--ws-text-secondary)] leading-snug">
+              {action.why}
             </p>
-          </div>
-        )}
-        {action.automation && (
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mt-1.5 sm:mt-2">
-            <span className="text-[10px] sm:text-[11px] font-semibold px-2 py-0.5 bg-[var(--ws-bg-primary)] rounded-full text-[var(--ws-text-secondary)] capitalize">
-              {action.automation.frequency}
-            </span>
-            {action.automation.duration_months ? (
-              <span className="text-[10px] sm:text-[11px] text-[var(--ws-text-tertiary)]">
-                {action.automation.duration_months} months
+          )}
+
+          {action.automation && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] font-bold px-2 py-0.5 bg-[var(--ws-text-primary)] rounded-md text-[var(--ws-bg-primary)] capitalize tracking-wide">
+                Auto &middot; {action.automation.frequency}
               </span>
-            ) : null}
-            {action.automation.target_amount ? (
-              <span className="text-[10px] sm:text-[11px] font-medium text-[var(--ws-accent-green)]">
-                &rarr; ${action.automation.target_amount.toLocaleString()}
-              </span>
-            ) : null}
-          </div>
-        )}
+              {action.automation.duration_months ? (
+                <span className="text-[11px] font-medium text-[var(--ws-text-tertiary)]">
+                  {action.automation.duration_months}mo
+                </span>
+              ) : null}
+              {action.automation.target_amount ? (
+                <span className="text-[11px] font-bold text-[var(--ws-text-primary)]">
+                  Target: ${action.automation.target_amount.toLocaleString()}
+                </span>
+              ) : null}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Priority badge */}
       <div
-        className="flex-shrink-0 mt-1 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full text-[11px] sm:text-[12px] font-semibold leading-none min-w-[60px] sm:min-w-[70px] text-center"
+        className="flex-shrink-0 mt-0.5 px-2.5 py-1 rounded-full text-[10px] sm:text-[11px] font-semibold leading-none min-w-[50px] sm:min-w-[60px] text-center"
         style={{
           backgroundColor: PRIORITY_COLORS[action.priority],
           color: PRIORITY_TEXT_COLORS[action.priority],
@@ -189,107 +214,55 @@ function AdvisorNote({
   );
 }
 
-const INSIGHT_COLORS: Record<string, string> = {
-  positive: "var(--ws-accent-green)",
-  negative: "var(--ws-accent-red)",
-  neutral: "var(--ws-text-secondary)",
-};
-
 function AnalysisSection({ steps }: { steps: ThinkingStep[] }) {
-  const [expanded, setExpanded] = useState(false);
-
   if (!steps || steps.length === 0) return null;
 
   return (
     <motion.div
-      className="mb-5"
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
+      className="mb-6"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.5, delay: 0.2 }}
     >
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-fit flex items-center gap-2 mb-3 cursor-pointer bg-transparent border-none"
-      >
-        <div className="w-5 h-5 rounded-full bg-[var(--ws-accent-green)] flex items-center justify-center">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
-            <path d="M12 3v18M3 12h18" stroke="white" strokeWidth="3" strokeLinecap="round" />
-          </svg>
-        </div>
-        <p className="text-[13px] font-semibold text-[var(--ws-text-primary)]">
-          Analysis
-        </p>
-        <svg
-          width="14" height="14" viewBox="0 0 24 24" fill="none"
-          className={`text-[var(--ws-text-tertiary)] transition-transform duration-300 ${expanded ? "rotate-180" : ""}`}
-        >
-          <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
+      <p className="text-[11px] font-semibold text-[var(--ws-text-tertiary)] uppercase tracking-wider mb-3">
+        Reasoning
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {steps.map((step, i) => {
+          const firstInsight = step.insights?.[0];
+          const sentimentColor = firstInsight?.type === 'positive'
+            ? 'var(--ws-accent-green)'
+            : firstInsight?.type === 'negative'
+              ? 'var(--ws-accent-red)'
+              : 'var(--ws-text-secondary)';
 
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.25 }}
-            className="overflow-hidden"
-          >
-            <div className="flex flex-col border border-[var(--ws-border)] rounded-[16px] p-5 sm:p-6 bg-[var(--ws-bg-surface)]">
-              {steps.map((step, i) => (
-                <div key={i} className="relative pl-6 pb-6 last:pb-0">
-                  {/* Timeline connector line */}
-                  {i < steps.length - 1 && (
-                    <div className="absolute left-[7px] top-6 bottom-[-8px] w-[2px] bg-[var(--ws-border)] -z-10" />
-                  )}
-
-                  {/* Timeline dot */}
-                  <div className="absolute left-0 top-1.5 w-4 h-4 rounded-full bg-[var(--ws-bg-primary)] border-2 border-[var(--ws-border)] flex items-center justify-center">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[var(--ws-text-tertiary)]" />
-                  </div>
-
-                  <motion.div
-                    initial={{ opacity: 0, x: -8 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ type: "spring", bounce: 0, duration: 0.5, delay: 0.05 * i }}
-                  >
-                    <p className="text-[14px] font-semibold text-[var(--ws-text-primary)] mb-2.5">
-                      {step.title}
-                    </p>
-
-                    {step.insights?.length > 0 && (
-                      <div className="flex flex-col gap-2">
-                        {step.insights.map((insight, j) => {
-                          const Icon = insight.type === 'positive'
-                            ? <span className="text-[12px] leading-none text-[var(--ws-accent-green)] font-bold">✓</span>
-                            : insight.type === 'negative'
-                              ? <span className="text-[12px] leading-none text-[var(--ws-accent-red)] font-bold">!</span>
-                              : <span className="text-[12px] leading-none text-[var(--ws-text-tertiary)] font-bold">·</span>;
-
-                          return (
-                            <div key={j} className="flex items-start gap-2">
-                              <div className="pt-0.5 w-3 flex justify-center flex-shrink-0">
-                                {Icon}
-                              </div>
-                              <p
-                                className="text-[13px] leading-relaxed"
-                                style={{ color: INSIGHT_COLORS[insight.type] || INSIGHT_COLORS.neutral }}
-                              >
-                                {insight.text}
-                              </p>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </motion.div>
-                </div>
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          return (
+            <motion.div
+              key={i}
+              className="flex items-center gap-2 px-3 py-2 rounded-full bg-[var(--ws-bg-surface)] border border-[var(--ws-border)]"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ type: "spring", bounce: 0, duration: 0.4, delay: 0.05 * i }}
+            >
+              <span
+                className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                style={{ backgroundColor: sentimentColor }}
+              />
+              <span className="text-[12px] text-[var(--ws-text-secondary)] leading-none whitespace-nowrap">
+                {step.title}
+              </span>
+              {firstInsight && (
+                <span
+                  className="text-[11px] font-medium leading-none whitespace-nowrap"
+                  style={{ color: sentimentColor }}
+                >
+                  {firstInsight.text.length > 30 ? firstInsight.text.slice(0, 28) + '…' : firstInsight.text}
+                </span>
+              )}
+            </motion.div>
+          );
+        })}
+      </div>
     </motion.div>
   );
 }
@@ -360,9 +333,11 @@ function SearchSourcesBanner({ metadata }: { metadata: SearchMetadata }) {
                     {metadata.sources.map((s, i) => {
                       let domain = "";
                       try {
-                        domain = new URL(s.url).hostname.replace("www.", "");
+                        const hostname = new URL(s.url).hostname.replace("www.", "");
+                        // Don't show vertex redirect hostnames — use title or generic label
+                        domain = hostname.includes("vertexaisearch.cloud.google.com") ? "" : hostname;
                       } catch {
-                        domain = s.url;
+                        domain = "";
                       }
                       return (
                         <a
@@ -377,7 +352,7 @@ function SearchSourcesBanner({ metadata }: { metadata: SearchMetadata }) {
                             <path d="M7 1H11V5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                             <path d="M11 1L6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                           </svg>
-                          {s.title || domain}
+                          {s.title || domain || "Web Source"}
                         </a>
                       );
                     })}
@@ -419,7 +394,7 @@ function DebugPanel({ log }: { log: DebugLog }) {
           </svg>
         </div>
         <p className="text-[12px] font-mono text-[var(--ws-text-tertiary)]">
-          Decision log &middot; {log.actionsBeforeGuardrails} generated &rarr; {log.actionsAfterGuardrails} kept
+          Log &middot; {log.actionsBeforeGuardrails} &rarr; {log.actionsAfterGuardrails} kept
         </p>
         <svg
           width="12" height="12" viewBox="0 0 24 24" fill="none"
@@ -478,11 +453,152 @@ function DebugPanel({ log }: { log: DebugLog }) {
 
 const TAB_ORDER = { actions: 0, impacts: 1, cashflow: 2 } as const;
 
-export default function PlanView({ result, event, searchMetadata, debugLog, onReset, onApplyActions }: PlanViewProps) {
+const PRIORITY_ORDER: QuickAction['priority'][] = ['do_now', 'this_week', 'this_month', 'next_quarter'];
+const PRIORITY_STEP_LABELS: Record<string, string> = {
+  do_now: 'Do Now',
+  this_week: 'This Week',
+  this_month: 'This Month',
+  next_quarter: 'Later',
+};
+
+function AnalysisDetailsSheet({
+  result,
+  event,
+  onClose,
+}: {
+  result: PathfinderResult;
+  event: string;
+  onClose: () => void;
+}) {
+  return (
+    <motion.div
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
+    >
+      <motion.div
+        className="absolute inset-0 bg-black/40"
+        onClick={onClose}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      />
+      <motion.div
+        className="relative w-full max-w-[500px] bg-[var(--ws-bg-surface)] rounded-[24px] shadow-2xl overflow-hidden max-h-[85vh] flex flex-col"
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        transition={{ type: "spring", damping: 28, stiffness: 300 }}
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--ws-border)] bg-[var(--ws-bg-primary)]">
+          <h3 className="text-[18px] font-bold text-[var(--ws-text-primary)]">Details</h3>
+          <button onClick={onClose} className="text-[var(--ws-text-tertiary)] hover:text-[var(--ws-text-primary)] transition-colors p-1 cursor-pointer" title="Close">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="px-6 py-6 overflow-y-auto flex flex-col gap-8">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-8 h-8 rounded-full bg-[var(--ws-bg-primary)] border border-[var(--ws-border)] flex items-center justify-center text-[var(--ws-text-primary)] shadow-sm">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" stroke="currentColor" strokeWidth="1.5" />
+                  <circle cx="12" cy="12" r="4" fill="currentColor" fillOpacity="0.2" stroke="currentColor" strokeWidth="1.5" />
+                  <path d="M12 8v8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </div>
+              <h4 className="text-[16px] font-semibold text-[var(--ws-text-primary)]">Summary</h4>
+            </div>
+            <p className="text-[14px] leading-relaxed text-[var(--ws-text-secondary)]">
+              {(() => {
+                const steps = result.thinking_steps.length;
+                const actions = result.quick_actions.length;
+                const doNow = result.quick_actions.filter(a => a.priority === 'do_now').length;
+                const hasRisks = result.risk_warnings.length > 0;
+                const hasAdvisor = result.advisor_flags.length > 0;
+                const nw = result.impact_summary.net_worth_change;
+                const nwDir = nw.value.startsWith('+') || nw.value.startsWith('$') ? 'grow' : nw.value.startsWith('-') ? 'protect' : 'optimize';
+
+                const parts: string[] = [];
+                parts.push(`Analyzed ${steps} area${steps !== 1 ? 's' : ''} for "${event}".`);
+
+                if (actions === 1) {
+                  parts.push(`1 action${doNow === 1 ? ' — do now' : ''}.`);
+                } else {
+                  parts.push(`${actions} actions to ${nwDir}${doNow > 0 ? `, ${doNow} urgent` : ''}.`);
+                }
+
+                if (hasRisks && hasAdvisor) {
+                  parts.push(`${result.risk_warnings.length} risk${result.risk_warnings.length !== 1 ? 's' : ''}, ${result.advisor_flags.length} advisor flag${result.advisor_flags.length !== 1 ? 's' : ''}.`);
+                } else if (hasRisks) {
+                  parts.push(`${result.risk_warnings.length} risk${result.risk_warnings.length !== 1 ? 's' : ''} flagged.`);
+                } else if (hasAdvisor) {
+                  parts.push(`${result.advisor_flags.length} advisor topic${result.advisor_flags.length !== 1 ? 's' : ''}.`);
+                }
+
+                return parts.join(' ');
+              })()}
+            </p>
+          </div>
+
+          <AnalysisSection steps={result.thinking_steps} />
+
+          {result.risk_warnings.length > 0 && (
+            <div className="flex flex-col gap-3">
+              <p className="text-[11px] text-[var(--ws-text-tertiary)] uppercase tracking-wider font-semibold">
+                Risks
+              </p>
+              {result.risk_warnings.map((w, i) => (
+                <RiskBanner key={i} warning={w} index={i} />
+              ))}
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+export default function PlanView({ result, event, profile, customFunds, searchMetadata, debugLog, onReset, onApplyActions }: PlanViewProps) {
   const [activeTab, setActiveTab] = useState<"actions" | "impacts" | "cashflow">("actions");
   const [tabDirection, setTabDirection] = useState(1);
   const [selectedAction, setSelectedAction] = useState<QuickAction | null>(null);
   const [confirmedActions, setConfirmedActions] = useState<Set<number>>(new Set());
+  const [currentResult, setCurrentResult] = useState<PathfinderResult>(result);
+  const [isRefining, setIsRefining] = useState(false);
+  const [refinementHistory, setRefinementHistory] = useState<string[]>([]);
+  const [showAnalysisDetails, setShowAnalysisDetails] = useState(false);
+
+  const handleRefine = useCallback(async (adjustment: string) => {
+    setIsRefining(true);
+    try {
+      const response = await fetch('/api/pathfinder/refine', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          profile,
+          customFunds,
+          originalEvent: event,
+          originalResult: currentResult,
+          adjustment,
+        }),
+      });
+      const data = await response.json();
+      if (data.result) {
+        setCurrentResult(data.result);
+        setRefinementHistory(prev => [...prev, adjustment]);
+        setConfirmedActions(new Set());
+      }
+    } catch (err) {
+      console.error('Refine failed:', err);
+    } finally {
+      setIsRefining(false);
+    }
+  }, [profile, customFunds, event, currentResult]);
 
   const handleTabChange = (tab: "actions" | "impacts" | "cashflow") => {
     setTabDirection(TAB_ORDER[tab] > TAB_ORDER[activeTab] ? 1 : -1);
@@ -491,7 +607,7 @@ export default function PlanView({ result, event, searchMetadata, debugLog, onRe
 
   const handleActionConfirm = () => {
     if (selectedAction) {
-      const idx = result.quick_actions.indexOf(selectedAction);
+      const idx = currentResult.quick_actions.indexOf(selectedAction);
       if (idx !== -1) {
         setConfirmedActions((prev) => new Set(prev).add(idx));
       }
@@ -501,16 +617,26 @@ export default function PlanView({ result, event, searchMetadata, debugLog, onRe
 
   return (
     <>
-      <div className="pb-20">
+      <div className="pb-8">
+        <AnimatePresence>
+          {showAnalysisDetails && (
+            <AnalysisDetailsSheet
+              result={currentResult}
+              event={event}
+              onClose={() => setShowAnalysisDetails(false)}
+            />
+          )}
+        </AnimatePresence>
+
         <div className="mx-auto max-w-5xl w-full">
           {/* Sticky Header */}
-          <div className="sticky top-[60px] z-40 bg-[var(--ws-bg-primary)] px-4 sm:px-10 pt-4 sm:pt-8 pb-3 sm:pb-4 border-b border-[var(--ws-border)]">
-            <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-4 sm:mb-8 gap-3 sm:gap-4">
+          <div className="sticky top-0 z-40 bg-[var(--ws-bg-primary)] px-4 sm:px-10 pt-3 sm:pt-4 pb-3 border-b border-[var(--ws-border)]">
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-3 sm:mb-4 gap-2 sm:gap-3">
               <div>
-                <p className="text-[var(--ws-text-primary)] text-[42px] sm:text-[64px] font-serif tracking-tight leading-[1] mb-1 sm:mb-2">
+                <p className="text-[var(--ws-text-primary)] text-[32px] sm:text-[42px] font-serif tracking-tight leading-[1] mb-0.5 sm:mb-1">
                   Your Plan
                 </p>
-                <p className="text-[var(--ws-text-secondary)] text-[14px] sm:text-[16px] max-w-xl leading-relaxed truncate">
+                <p className="text-[var(--ws-text-secondary)] text-[13px] sm:text-[14px] max-w-xl leading-relaxed truncate">
                   &ldquo;{event}&rdquo;
                 </p>
               </div>
@@ -532,7 +658,7 @@ export default function PlanView({ result, event, searchMetadata, debugLog, onRe
             </div>
           </div>
 
-          <div className="px-4 sm:px-10 py-5 sm:py-8 w-full mt-2 sm:mt-4">
+          <div className="px-4 sm:px-10 py-4 sm:py-5 w-full mt-1 sm:mt-2">
             <AnimatePresence mode="wait" initial={false}>
               {activeTab === "actions" && (
                 <motion.div
@@ -548,69 +674,44 @@ export default function PlanView({ result, event, searchMetadata, debugLog, onRe
                   exit="exit"
                   className="w-full max-w-5xl mx-auto flex flex-col pt-2"
                 >
-                  {/* Agent Summary HUD */}
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, delay: 0.1 }}
-                    className="mb-8"
-                  >
-                    <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 bg-[var(--ws-bg-surface)] p-5 sm:p-6 rounded-[16px] sm:rounded-[20px] border border-[var(--ws-border)]">
-                      <div className="flex-shrink-0 mt-1">
-                        <div className="w-10 h-10 rounded-full bg-[var(--ws-bg-primary)] border border-[var(--ws-border)] flex items-center justify-center text-[var(--ws-text-primary)] shadow-sm">
-                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                            <path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" stroke="currentColor" strokeWidth="1.5" />
-                            <circle cx="12" cy="12" r="4" fill="currentColor" fillOpacity="0.2" stroke="currentColor" strokeWidth="1.5" />
-                            <path d="M12 8v8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                          </svg>
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <h3 className="text-[16px] font-semibold text-[var(--ws-text-primary)]">
-                          Pathfinder Analysis
-                        </h3>
-                        <p className="text-[14px] leading-relaxed text-[var(--ws-text-secondary)]">
-                          {(() => {
-                            const steps = result.thinking_steps.length;
-                            const actions = result.quick_actions.length;
-                            const doNow = result.quick_actions.filter(a => a.priority === 'do_now').length;
-                            const hasRisks = result.risk_warnings.length > 0;
-                            const hasAdvisor = result.advisor_flags.length > 0;
-                            const nw = result.impact_summary.net_worth_change;
-                            const nwDir = nw.value.startsWith('+') || nw.value.startsWith('$') ? 'grow' : nw.value.startsWith('-') ? 'protect' : 'optimize';
+                  <div className="flex flex-row items-center gap-3 mb-4">
+                    {searchMetadata && <SearchSourcesBanner metadata={searchMetadata} />}
 
-                            const parts: string[] = [];
-                            parts.push(`I analyzed your finances across ${steps} dimension${steps !== 1 ? 's' : ''} for your "${event}" scenario.`);
+                    <button
+                      onClick={() => setShowAnalysisDetails(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--ws-bg-primary)] border border-[var(--ws-border)] text-[12px] font-medium text-[var(--ws-text-secondary)] hover:text-[var(--ws-text-primary)] transition-colors w-fit flex-shrink-0 cursor-pointer shadow-sm"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" stroke="currentColor" strokeWidth="1.5" />
+                        <path d="M12 8v8M9 12h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                      </svg>
+                      Details
+                    </button>
+                  </div>
 
-                            if (actions === 1) {
-                              parts.push(`There's 1 key action to take${doNow === 1 ? ' right away' : ''}.`);
-                            } else {
-                              parts.push(`I identified ${actions} actions to ${nwDir} your finances${doNow > 0 ? `, ${doNow} of which ${doNow === 1 ? 'is' : 'are'} urgent` : ''}.`);
-                            }
+                  {/* Refinement badge */}
+                  {refinementHistory.length > 0 && (
+                    <motion.div
+                      className="flex items-center gap-2 mb-4 mt-2"
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-[var(--ws-accent-green)]/10 text-[var(--ws-accent-green)]">
+                        Refined {refinementHistory.length}x
+                      </span>
+                      <span className="text-[11px] text-[var(--ws-text-tertiary)]">
+                        {refinementHistory[refinementHistory.length - 1]}
+                      </span>
+                    </motion.div>
+                  )}
 
-                            if (hasRisks && hasAdvisor) {
-                              parts.push(`I flagged ${result.risk_warnings.length} risk${result.risk_warnings.length !== 1 ? 's' : ''} and ${result.advisor_flags.length} item${result.advisor_flags.length !== 1 ? 's' : ''} to discuss with an advisor.`);
-                            } else if (hasRisks) {
-                              parts.push(`I also flagged ${result.risk_warnings.length} risk${result.risk_warnings.length !== 1 ? 's' : ''} to watch out for.`);
-                            } else if (hasAdvisor) {
-                              parts.push(`I also identified ${result.advisor_flags.length} topic${result.advisor_flags.length !== 1 ? 's' : ''} worth discussing with an advisor.`);
-                            }
-
-                            return parts.join(' ');
-                          })()}
-                        </p>
-                      </div>
-                    </div>
-                  </motion.div>
-
-                  {searchMetadata && <SearchSourcesBanner metadata={searchMetadata} />}
-
-                  <div className="flex items-center justify-between mb-4 mt-2">
-                    <h2 className="text-[20px] font-semibold text-[var(--ws-text-primary)]">
-                      Recommended Actions
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-[18px] font-semibold text-[var(--ws-text-primary)]">
+                      Actions
                     </h2>
-                    <p className="text-[13px] text-[var(--ws-text-secondary)]">
-                      {result.quick_actions.length} explicit steps
+                    <p className="text-[12px] text-[var(--ws-text-secondary)]">
+                      {currentResult.quick_actions.length} steps
                       {confirmedActions.size > 0 && (
                         <span className="text-[var(--ws-accent-green)] font-medium">
                           {" "}&middot; {confirmedActions.size} done
@@ -619,40 +720,69 @@ export default function PlanView({ result, event, searchMetadata, debugLog, onRe
                     </p>
                   </div>
 
-                  <div className="flex flex-col gap-0 border border-[var(--ws-border)] bg-[var(--ws-bg-surface)] p-6 sm:p-8 rounded-[16px] sm:rounded-[24px]">
-                    <AnimatePresence mode="popLayout">
-                      {result.quick_actions.map((action, i) => {
-                        if (confirmedActions.has(i)) return null;
+                  {/* Grouped actions by priority */}
+                  <div className="flex flex-col gap-0 border border-[var(--ws-border)] bg-[var(--ws-bg-surface)] p-4 sm:p-5 rounded-[16px] sm:rounded-[20px]">
+                    {(() => {
+                      const actionGroups = PRIORITY_ORDER
+                        .map(priority => ({
+                          priority,
+                          label: PRIORITY_STEP_LABELS[priority],
+                          actions: currentResult.quick_actions
+                            .map((action, originalIndex) => ({ action, originalIndex }))
+                            .filter(({ action, originalIndex }) => action.priority === priority && !confirmedActions.has(originalIndex)),
+                        }))
+                        .filter(group => group.actions.length > 0);
 
-                        const isLast = i === result.quick_actions.length - 1;
-
-                        return (
-                          <motion.div
-                            key={`pending-${i}`}
-                            layout
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            transition={{ duration: 0.2 }}
-                            className="relative pl-0 w-full"
-                          >
-                            {!isLast && (
-                              <div className="absolute left-[20px] sm:left-[24px] top-[40px] bottom-0 w-[2px] bg-[var(--ws-border)] -z-10" />
-                            )}
-                            <ActionCard
-                              action={action}
-                              index={i}
-                              onTap={() => setSelectedAction(action)}
-                            />
-                          </motion.div>
-                        );
-                      })}
-                    </AnimatePresence>
+                      return actionGroups.map((group, groupIdx) => (
+                        <div key={group.priority}>
+                          {groupIdx > 0 && (
+                            <div className="flex justify-center py-1.5">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-[var(--ws-text-tertiary)]">
+                                <path d="M12 5v14M12 19l-4-4M12 19l4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <div className="w-6 h-6 rounded-full bg-[var(--ws-bg-primary)] border border-[var(--ws-border)] flex items-center justify-center text-[11px] font-bold text-[var(--ws-text-secondary)]">
+                              {groupIdx + 1}
+                            </div>
+                            <span className="text-[12px] font-semibold text-[var(--ws-text-tertiary)] uppercase tracking-wider">
+                              {group.label}
+                            </span>
+                          </div>
+                          <AnimatePresence mode="popLayout">
+                            {group.actions.map(({ action, originalIndex }, actionIdx) => {
+                              const isLast = actionIdx === group.actions.length - 1;
+                              return (
+                                <motion.div
+                                  key={`pending-${originalIndex}`}
+                                  layout
+                                  initial={{ opacity: 0, scale: 0.95 }}
+                                  animate={{ opacity: 1, scale: 1 }}
+                                  exit={{ opacity: 0, scale: 0.95 }}
+                                  transition={{ duration: 0.2 }}
+                                  className="relative pl-0 w-full"
+                                >
+                                  {!isLast && (
+                                    <div className="absolute left-[18px] sm:left-[20px] top-[44px] bottom-0 w-[1.5px] bg-[var(--ws-border)] -z-10" />
+                                  )}
+                                  <ActionCard
+                                    action={action}
+                                    index={originalIndex}
+                                    onTap={() => setSelectedAction(action)}
+                                  />
+                                </motion.div>
+                              );
+                            })}
+                          </AnimatePresence>
+                        </div>
+                      ));
+                    })()}
                   </div>
 
                   {confirmedActions.size > 0 && (
                     <motion.div
-                      className="mt-8 flex flex-col gap-4"
+                      className="mt-5 flex flex-col gap-2"
                       initial={{ opacity: 0, y: 10 }}
                       whileInView={{ opacity: 1, y: 0 }}
                       viewport={{ once: true }}
@@ -669,7 +799,7 @@ export default function PlanView({ result, event, searchMetadata, debugLog, onRe
                         </h3>
                       </div>
                       <AnimatePresence mode="popLayout">
-                        {result.quick_actions.map((action, i) => {
+                        {currentResult.quick_actions.map((action, i) => {
                           if (!confirmedActions.has(i)) return null;
                           return (
                             <motion.div
@@ -692,16 +822,10 @@ export default function PlanView({ result, event, searchMetadata, debugLog, onRe
                     </motion.div>
                   )}
 
-                  {result.risk_warnings.length > 0 && (
-                    <div className="mt-8 flex flex-col gap-3 border-t border-[var(--ws-border)] pt-8">
-                      <p className="text-[11px] text-[var(--ws-text-tertiary)] uppercase tracking-wider font-semibold">
-                        Risks
-                      </p>
-                      {result.risk_warnings.map((w, i) => (
-                        <RiskBanner key={i} warning={w} index={i} />
-                      ))}
-                    </div>
-                  )}
+                  {/* Risks section moved to details sheet */}
+
+                  {/* What-If Refinement Input */}
+                  <WhatIfInput onSubmit={handleRefine} isLoading={isRefining} />
                 </motion.div>
               )}
 
@@ -719,20 +843,23 @@ export default function PlanView({ result, event, searchMetadata, debugLog, onRe
                   className="w-full max-w-5xl mx-auto flex flex-col gap-8 sm:gap-12 pt-2"
                 >
                   <div>
-                    <h2 className="text-[20px] font-semibold text-[var(--ws-text-primary)] mb-6">Financial Impact</h2>
-                    <ImpactSummary summary={result.impact_summary} event={event} hideHeader />
+                    <div className="mb-6">
+                      <h2 className="text-[20px] font-semibold text-[var(--ws-text-primary)]">Financial Impact</h2>
+                      <p className="text-[13px] text-[var(--ws-text-secondary)] mt-1">What changes if you follow this plan</p>
+                    </div>
+                    <ImpactSummary summary={currentResult.impact_summary} event={event} hideHeader actions={currentResult.quick_actions} />
                   </div>
 
                   <div>
-                    <h3 className="text-[20px] font-semibold text-[var(--ws-text-primary)] mb-4">Account Changes</h3>
-                    <AccountImpactCards impacts={result.account_impacts} />
+                    <h3 className="text-[20px] font-semibold text-[var(--ws-text-primary)] mb-4">Accounts</h3>
+                    <AccountImpactCards impacts={currentResult.account_impacts} actions={currentResult.quick_actions} />
                   </div>
 
-                  {result.advisor_flags.length > 0 && (
+                  {currentResult.advisor_flags.length > 0 && (
                     <div className="border-t border-[var(--ws-border)] pt-8">
-                      <h3 className="text-[20px] font-semibold text-[var(--ws-text-primary)] mb-5">Advisor Flags</h3>
+                      <h3 className="text-[20px] font-semibold text-[var(--ws-text-primary)] mb-5">Advisor</h3>
                       <div className="flex flex-col gap-4">
-                        {result.advisor_flags.map((flag, i) => (
+                        {currentResult.advisor_flags.map((flag, i) => (
                           <AdvisorNote key={i} flag={flag} index={i} />
                         ))}
                       </div>
@@ -754,30 +881,33 @@ export default function PlanView({ result, event, searchMetadata, debugLog, onRe
                   exit="exit"
                   className="w-full max-w-5xl mx-auto pt-2"
                 >
-                  <h3 className="text-[20px] font-semibold text-[var(--ws-text-primary)] mb-4">Monthly Cash Flow</h3>
-                  <CashflowCard cashflow={result.monthly_cashflow} />
+                  <div className="mb-4">
+                    <h3 className="text-[20px] font-semibold text-[var(--ws-text-primary)]">Monthly Cash Flow</h3>
+                    <p className="text-[13px] text-[var(--ws-text-secondary)] mt-1">Can you afford this plan?</p>
+                  </div>
+                  <CashflowCard cashflow={currentResult.monthly_cashflow} actions={currentResult.quick_actions} />
                 </motion.div>
               )}
             </AnimatePresence>
 
-            <div className="pt-8 pb-8 flex flex-col items-center gap-4 border-t border-[var(--ws-border)] mt-8 w-full max-w-5xl mx-auto">
+            <div className="pt-5 pb-5 flex flex-col items-center gap-3 border-t border-[var(--ws-border)] mt-5 w-full max-w-5xl mx-auto">
               {confirmedActions.size > 0 && (
                 <button
-                  onClick={() => onApplyActions(Array.from(confirmedActions), result.quick_actions)}
+                  onClick={() => onApplyActions(Array.from(confirmedActions), currentResult.quick_actions)}
                   className="w-full py-3.5 rounded-full text-[15px] font-semibold cursor-pointer transition-all hover:opacity-90 active:scale-[0.98]"
                   style={{
                     backgroundColor: 'var(--ws-text-primary)',
                     color: 'var(--ws-bg-primary)',
                   }}
                 >
-                  Back to Accounts
+                  Apply & Go Back
                 </button>
               )}
               <button
                 onClick={onReset}
                 className="text-[var(--ws-text-tertiary)] text-[14px] underline underline-offset-2 hover:text-[var(--ws-text-secondary)] transition-colors cursor-pointer bg-transparent border-none"
               >
-                New scenario
+                Start over
               </button>
             </div>
           </div>

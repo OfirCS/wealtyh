@@ -39,14 +39,14 @@ export default function ThinkingProgress({ progress }: ThinkingProgressProps) {
           />
         </svg>
         {/* Percentage Text */}
-        <span className="font-serif text-[18px] text-[var(--ws-text-primary)] font-medium tabular-nums shadow-sm">
+        <span className="font-serif text-[18px] text-[var(--ws-text-primary)] font-semibold tabular-nums tracking-tight">
           {Math.round(progress)}%
         </span>
       </div>
 
       {/* Status text */}
       <p className="text-[14px] text-center mt-4 font-medium" style={{ color: "var(--ws-text-secondary)" }}>
-        {progress < 100 ? "Finalizing your path..." : "Finishing up..."}
+        {progress < 100 ? "Building plan..." : "Done"}
       </p>
     </div>
   );

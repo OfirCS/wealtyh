@@ -7,7 +7,6 @@ import {
   parsePathfinderResult,
   routeQuery,
   searchForContext,
-  generatePlan,
   runPathfinder,
 } from '@/lib/pathfinder-engine';
 import type { FinancialProfile } from '@/lib/types';
@@ -204,71 +203,7 @@ describe('searchForContext (live Google Search)', () => {
   });
 });
 
-// ── Integration: Full pipeline (live AI end-to-end) ──────────────────────────
-
-describe('generatePlan (live AI)', () => {
-  let ai: GoogleGenAI;
-
-  beforeAll(() => {
-    const apiKey = process.env.GOOGLE_API_KEY;
-    if (!apiKey) throw new Error('GOOGLE_API_KEY required for integration tests');
-    ai = new GoogleGenAI({ apiKey });
-  });
-
-  it('generates a valid plan using profile data (no search)', async () => {
-    const result = await generatePlan(
-      ai,
-      PROFILE_A,
-      'I want to max out my TFSA and RRSP this year',
-      null,
-      [],
-    );
-
-    // Structure checks
-    expect(result.thinking_steps.length).toBeGreaterThanOrEqual(3);
-    expect(result.quick_actions.length).toBeGreaterThanOrEqual(3);
-    expect(result.advisor_flags.length).toBeGreaterThanOrEqual(1);
-    expect(result.risk_warnings.length).toBeGreaterThanOrEqual(1);
-    expect(result.monthly_cashflow.length).toBeGreaterThanOrEqual(1);
-
-    // Verify it uses ACTUAL profile numbers — not generic
-    const allText = JSON.stringify(result);
-    expect(allText).toContain('85');  // annualIncome reference
-    expect(allText).toMatch(/34[.,]?5|34500/); // TFSA balance
-    expect(allText).toMatch(/22[.,]?0|22000/); // RRSP balance
-
-    // Impact summary has correct structure
-    expect(result.impact_summary.income_change).toBeDefined();
-    expect(result.impact_summary.expense_change).toBeDefined();
-    expect(result.impact_summary.timeline).toBeDefined();
-
-    // Quick actions are real actions with proper structure
-    for (const action of result.quick_actions) {
-      expect(action.title).toBeTruthy();
-      expect(action.why).toBeTruthy();
-      expect(['move', 'create_fund', 'automate', 'open_account', 'pause', 'adjust', 'pay_off']).toContain(action.type);
-      expect(['do_now', 'this_week', 'this_month', 'next_quarter']).toContain(action.priority);
-    }
-  });
-
-  it('uses custom profile B (BC, 120K, single) not defaults', async () => {
-    const result = await generatePlan(
-      ai,
-      PROFILE_B,
-      'I want to take a year off to travel',
-      null,
-      [],
-    );
-
-    const allText = JSON.stringify(result);
-    // Should reference Profile B's income, not Profile A's
-    expect(allText).toContain('120');
-    // Should use Profile B balances (20K TFSA, 10K savings)
-    expect(allText).toMatch(/20[,.]?000|20K|\$20/);
-    // Should have quick actions
-    expect(result.quick_actions.length).toBeGreaterThanOrEqual(3);
-  });
-});
+// ── (generatePlan tests removed since it is no longer exported) ──
 
 // ── Integration: Full orchestrator (router + optional search + generate) ─────
 

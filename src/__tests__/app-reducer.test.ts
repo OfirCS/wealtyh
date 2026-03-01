@@ -18,7 +18,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { step: 'thinking', profile: state.profile, customFunds: state.customFunds, event: action.event };
     case 'COMPLETE_THINKING':
       if (state.step !== 'thinking') return state;
-      return { step: 'plan', profile: state.profile, customFunds: state.customFunds, event: (state as { event: string }).event, result: action.result, searchMetadata: action.searchMetadata };
+      return { step: 'plan', profile: state.profile, customFunds: state.customFunds, event: (state as { event: string }).event, result: action.result, searchMetadata: action.searchMetadata, debugLog: action.debugLog };
     case 'THINKING_ERROR':
       if (state.step !== 'thinking') return state;
       return { step: 'error', profile: state.profile, customFunds: state.customFunds, event: (state as { event: string }).event, message: action.message };
@@ -89,7 +89,7 @@ const mockResult: PathfinderResult = {
     timeline: { value: '18 months', label: 'Timeline', type: 'neutral' },
   },
   quick_actions: [
-    { title: 'Move $2,000 to Emergency Fund', why: 'Buffer', type: 'move', amount: 2000, from_account: 'Chequing', to_account: 'Emergency Fund', priority: 'do_now' },
+    { title: 'Move $2,000 to Emergency Fund', why: 'Buffer', derived_from: 'Math', type: 'move', amount: 2000, from_account: 'Chequing', to_account: 'Emergency Fund', priority: 'do_now' },
   ],
   advisor_flags: [],
   risk_warnings: [],
@@ -109,6 +109,7 @@ const planState: AppState = {
   event: 'Having a baby',
   result: mockResult,
   searchMetadata: mockSearchMetadata,
+  debugLog: null,
 };
 
 const errorState: AppState = {
@@ -181,6 +182,7 @@ describe('appReducer', () => {
         type: 'COMPLETE_THINKING',
         result: mockResult,
         searchMetadata: mockSearchMetadata,
+        debugLog: null,
       });
       expect(next.step).toBe('plan');
       expect((next as { result: PathfinderResult }).result).toBe(mockResult);
@@ -192,6 +194,7 @@ describe('appReducer', () => {
         type: 'COMPLETE_THINKING',
         result: mockResult,
         searchMetadata: null,
+        debugLog: null,
       });
       expect((next as { event: string }).event).toBe('Having a baby');
     });
@@ -201,6 +204,7 @@ describe('appReducer', () => {
         type: 'COMPLETE_THINKING',
         result: mockResult,
         searchMetadata: null,
+        debugLog: null,
       });
       expect(next.step).toBe('home');
     });

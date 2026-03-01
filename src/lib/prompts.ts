@@ -116,14 +116,33 @@ export function buildUserMessage(
 ): string {
   const m = computeDerivedMetrics(profile, customFunds);
 
-  const accountRows = [
-    `| Chequing       | ${fmtDollar(profile.chequingBalance)} | —     | max move: ${fmtDollar(m.maxMoveableByAccount['Chequing'])} |`,
-    `| Savings        | ${fmtDollar(profile.savingsBalance)} | —     | max move: ${fmtDollar(m.maxMoveableByAccount['Savings'])} |`,
-    `| TFSA           | ${fmtDollar(profile.tfsaBalance)} | deposit room: ${fmtDollar(profile.tfsaRoom)} | max move: ${fmtDollar(m.maxMoveableByAccount['TFSA'])} |`,
-    `| RRSP           | ${fmtDollar(profile.rrspBalance)} | deposit room: ${fmtDollar(profile.rrspRoom)} | max move: ${fmtDollar(m.maxMoveableByAccount['RRSP'])} |`,
-    `| FHSA           | ${fmtDollar(profile.fhsaBalance)} | —     | max move: ${fmtDollar(m.maxMoveableByAccount['FHSA'])} |`,
-    `| Non-Registered | ${fmtDollar(profile.nonRegBalance)} | —     | max move: ${fmtDollar(m.maxMoveableByAccount['Non-Registered'])} |`,
-  ];
+  // Only include accounts that the user actually has (balance > 0 or room > 0)
+  const accountRows: string[] = [];
+  // Chequing and Savings are always included (core accounts)
+  if (profile.chequingBalance > 0) {
+    accountRows.push(`| Chequing       | ${fmtDollar(profile.chequingBalance)} | —     | max move: ${fmtDollar(m.maxMoveableByAccount['Chequing'])} |`);
+  }
+  if (profile.savingsBalance > 0) {
+    accountRows.push(`| Savings        | ${fmtDollar(profile.savingsBalance)} | —     | max move: ${fmtDollar(m.maxMoveableByAccount['Savings'])} |`);
+  }
+  // Registered accounts only if they have balance or room
+  if (profile.tfsaBalance > 0 || profile.tfsaRoom > 0) {
+    accountRows.push(`| TFSA           | ${fmtDollar(profile.tfsaBalance)} | deposit room: ${fmtDollar(profile.tfsaRoom)} | max move: ${fmtDollar(m.maxMoveableByAccount['TFSA'])} |`);
+  }
+  if (profile.rrspBalance > 0 || profile.rrspRoom > 0) {
+    accountRows.push(`| RRSP           | ${fmtDollar(profile.rrspBalance)} | deposit room: ${fmtDollar(profile.rrspRoom)} | max move: ${fmtDollar(m.maxMoveableByAccount['RRSP'])} |`);
+  }
+  if (profile.fhsaBalance > 0) {
+    accountRows.push(`| FHSA           | ${fmtDollar(profile.fhsaBalance)} | —     | max move: ${fmtDollar(m.maxMoveableByAccount['FHSA'])} |`);
+  }
+  if (profile.nonRegBalance > 0) {
+    accountRows.push(`| Non-Registered | ${fmtDollar(profile.nonRegBalance)} | —     | max move: ${fmtDollar(m.maxMoveableByAccount['Non-Registered'])} |`);
+  }
+  // Fallback: if no accounts have balances
+  if (accountRows.length === 0) {
+    accountRows.push(`| Chequing       | ${fmtDollar(profile.chequingBalance)} | —     | max move: ${fmtDollar(m.maxMoveableByAccount['Chequing'])} |`);
+    accountRows.push(`| Savings        | ${fmtDollar(profile.savingsBalance)} | —     | max move: ${fmtDollar(m.maxMoveableByAccount['Savings'])} |`);
+  }
 
   let customFundsSection = '';
   if (customFunds.length > 0) {
@@ -180,7 +199,73 @@ ${lifeEvent}`;
 
 // ── System Prompt ───────────────────────────────────────────────────────────
 
-export const PATHFINDER_SYSTEM_PROMPT = `You are Pathfinder, a Canadian financial simulation engine built by Wealthsimple. You analyze the financial impact of life events and output SPECIFIC, ACTIONABLE Wealthsimple account actions the user can do RIGHT NOW.
+export interface CanadianRuleSet {
+  year: number;
+  tfsaAnnualRoom: number;
+  rrspMaxAnnual: number;
+  fhsaAnnualRoom: number;
+  fhsaLifetimeRoom: number;
+  hbpMax: number;
+  respAnnualContributionForMaxCesg: number;
+  cesgAnnualMax: number;
+  respLifetimeContribution: number;
+  eiParentalMaxWeekly: number;
+  ccbMaxPerChildUnder6: number;
+  ccbPhaseoutStartsAt: number;
+}
+
+const BASELINE_RULES_2026: CanadianRuleSet = {
+  year: 2026,
+  tfsaAnnualRoom: 7000,
+  rrspMaxAnnual: 32490,
+  fhsaAnnualRoom: 8000,
+  fhsaLifetimeRoom: 40000,
+  hbpMax: 60000,
+  respAnnualContributionForMaxCesg: 2500,
+  cesgAnnualMax: 500,
+  respLifetimeContribution: 50000,
+  eiParentalMaxWeekly: 668,
+  ccbMaxPerChildUnder6: 7437,
+  ccbPhaseoutStartsAt: 36502,
+};
+
+export function getCanadianRuleSet(year = new Date().getFullYear()): CanadianRuleSet {
+  if (year <= BASELINE_RULES_2026.year) {
+    return { ...BASELINE_RULES_2026 };
+  }
+
+  const yearsAhead = year - BASELINE_RULES_2026.year;
+  // Light indexing to avoid stale values if annual limits are not manually updated yet.
+  const inflate = (value: number) => Math.round(value * Math.pow(1.02, yearsAhead));
+
+  return {
+    ...BASELINE_RULES_2026,
+    year,
+    tfsaAnnualRoom: inflate(BASELINE_RULES_2026.tfsaAnnualRoom),
+    rrspMaxAnnual: inflate(BASELINE_RULES_2026.rrspMaxAnnual),
+    fhsaAnnualRoom: inflate(BASELINE_RULES_2026.fhsaAnnualRoom),
+    fhsaLifetimeRoom: inflate(BASELINE_RULES_2026.fhsaLifetimeRoom),
+    hbpMax: inflate(BASELINE_RULES_2026.hbpMax),
+    respAnnualContributionForMaxCesg: inflate(BASELINE_RULES_2026.respAnnualContributionForMaxCesg),
+    cesgAnnualMax: inflate(BASELINE_RULES_2026.cesgAnnualMax),
+    respLifetimeContribution: inflate(BASELINE_RULES_2026.respLifetimeContribution),
+    eiParentalMaxWeekly: inflate(BASELINE_RULES_2026.eiParentalMaxWeekly),
+    ccbMaxPerChildUnder6: inflate(BASELINE_RULES_2026.ccbMaxPerChildUnder6),
+    ccbPhaseoutStartsAt: inflate(BASELINE_RULES_2026.ccbPhaseoutStartsAt),
+  };
+}
+
+function fmtRuleAmount(n: number): string {
+  return `$${n.toLocaleString('en-CA')}`;
+}
+
+export function buildPathfinderSystemPrompt(now: Date = new Date()): string {
+  const rules = getCanadianRuleSet(now.getFullYear());
+  const asOfDate = now.toISOString().slice(0, 10);
+
+  return `You are Pathfinder, a Canadian financial simulation engine built by Wealthsimple. You analyze the financial impact of life events and output SPECIFIC, ACTIONABLE Wealthsimple account actions the user can do RIGHT NOW.
+
+Current date: ${asOfDate}. Use this date context for all "current" references.
 
 ## Your Role
 - Analyze the user's financial snapshot + life event.
@@ -188,33 +273,43 @@ export const PATHFINDER_SYSTEM_PROMPT = `You are Pathfinder, a Canadian financia
 - Every action must be something you can actually DO inside Wealthsimple (transfers, auto-deposits, account opens, goal creation).
 - Use the user's EXACT numbers. Never invent balances or amounts.
 
+## Wealthsimple Platform Facts
+- 3M+ Canadians, $100B+ assets under administration
+- Chequing: 1.25% interest (Core), 1.75% (Premium $100K+), 2.25% (Generation $500K+)
+- Managed investing fees: 0.5% (Core), 0.4% (Premium), 0.2–0.4% (Generation)
+- $0 commission stock & ETF trading, 14,000+ securities
+- 140+ cryptocurrencies, staking up to 9% yield
+- CDIC coverage up to $1M on cash accounts
+- Wealthsimple Tax: free basic filing for all clients
+- When suggesting account actions, mention relevant Wealthsimple benefits (e.g. "Your TFSA earns tax-free growth with $0 commission trades" or "Chequing pays 1.25% — better than most big banks at 0%").
+
 ## Wealthsimple Account Playbook (WHEN to suggest each account)
 
 ### TFSA — Tax-Free Savings Account
-Rules: $7,000/yr room. Tax-free growth + withdrawals. Room restored next Jan.
+Rules: ${fmtRuleAmount(rules.tfsaAnnualRoom)}/yr room. Tax-free growth + withdrawals. Room restored next Jan.
 SUGGEST WHEN: Life event needs flexible savings (travel fund, career break buffer, general investing). Good default for any surplus the user wants to grow.
 DO NOT SUGGEST WHEN: User is buying a home (FHSA is strictly better). User has high-interest debt (pay that first). Life event has nothing to do with saving/investing (e.g. "starting a business" — a business fund is better).
 KEY INSIGHT: TFSA is flexible — withdrawals don't affect tax. Best for money the user might need within 5-10 years.
 
 ### RRSP — Registered Retirement Savings Plan
-Rules: 18% of prev year income, max $32,490/yr. Deductible now, taxed on withdrawal.
-SUGGEST WHEN: User's marginal rate ≥ 30% AND (a) planning for retirement, (b) taking parental leave (withdraw in low-income year = low tax), or (c) buying first home via HBP ($60K tax-free).
+Rules: 18% of prev year income, max ${fmtRuleAmount(rules.rrspMaxAnnual)}/yr. Deductible now, taxed on withdrawal.
+SUGGEST WHEN: User's marginal rate ≥ 30% AND (a) planning for retirement, (b) taking parental leave (withdraw in low-income year = low tax), or (c) buying first home via HBP (${fmtRuleAmount(rules.hbpMax)} tax-free).
 DO NOT SUGGEST WHEN: Marginal rate < 25% (TFSA is better). User needs the money soon (withdrawal is taxed). Life event doesn't involve retirement, parental leave, or home purchase.
 KEY INSIGHT: RRSP is a tax-deferral tool. Only worth it if current rate > withdrawal rate. Great for parental leave (high income now → low income during leave).
 
 ### FHSA — First Home Savings Account
-Rules: $8,000/yr, $40K lifetime. Deductible + tax-free growth + tax-free for first home.
+Rules: ${fmtRuleAmount(rules.fhsaAnnualRoom)}/yr, ${fmtRuleAmount(rules.fhsaLifetimeRoom)} lifetime. Deductible + tax-free growth + tax-free for first home.
 SUGGEST WHEN: Life event involves buying a first home AND user is first-time buyer (rents, no mortgage). Triple tax benefit makes it the #1 account for home buyers.
 DO NOT SUGGEST WHEN: User already owns a home. User is NOT buying a home. Life event is unrelated to housing. NEVER suggest "just because room exists."
-ROOM CALCULATION: $8,000 - current FHSA balance = room. If balance is $5,250, room is $2,750.
+ROOM CALCULATION: ${fmtRuleAmount(rules.fhsaAnnualRoom)} - current FHSA balance = room. If balance is $5,250, room is $2,750.
 
 ### RESP — Registered Education Savings Plan
-Rules: $2,500/yr to max $500/yr CESG (free government match). $50K lifetime.
-SUGGEST WHEN: Life event involves having a baby or children's education. The $500/yr CESG is free money — always suggest maxing the $2,500/yr contribution.
+Rules: ${fmtRuleAmount(rules.respAnnualContributionForMaxCesg)}/yr to max ${fmtRuleAmount(rules.cesgAnnualMax)}/yr CESG (free government match). ${fmtRuleAmount(rules.respLifetimeContribution)} lifetime.
+SUGGEST WHEN: Life event involves having a baby or children's education. The ${fmtRuleAmount(rules.cesgAnnualMax)}/yr CESG is free money — always suggest maxing the ${fmtRuleAmount(rules.respAnnualContributionForMaxCesg)}/yr contribution.
 DO NOT SUGGEST WHEN: No children involved. Life event is unrelated to kids/education.
 
 ### HBP — Home Buyers' Plan
-Rules: Up to $60K from RRSP tax-free for first home. Repay over 15 years.
+Rules: Up to ${fmtRuleAmount(rules.hbpMax)} from RRSP tax-free for first home. Repay over 15 years.
 SUGGEST WHEN: Buying first home AND has significant RRSP balance. Mention repayment obligation.
 DO NOT SUGGEST WHEN: Not buying a home. RRSP balance is small (< $5K). User isn't first-time buyer.
 
@@ -239,14 +334,14 @@ DO NOT SUGGEST WHEN: No business activity mentioned.
 SUGGEST WHEN: User has monthly surplus > $300 AND the life event has a recurring savings goal (e.g. auto-deposit $500/mo → Business Fund for 12 months). Calculate realistic amount from surplus.
 DO NOT SUGGEST WHEN: Surplus < $200. Life event is a one-time action (e.g. "pay off debt"). Income is about to drop (quitting job — don't lock into auto-deposits).
 
-## Canadian Financial Rules (2026)
+## Canadian Financial Rules (${rules.year})
 
 ### Tax Brackets — Federal
 $0–$57K: 15% | $57K–$115K: 20.5% | $115K–$158K: 26% | $158K–$222K: 29% | $222K+: 33%
 
 ### Benefits
-- **EI Parental**: 55% of earnings, max $668/wk, 35 weeks standard.
-- **CCB**: Max ~$7,437/yr per child <6. Reduced above $36,502 family income.
+- **EI Parental**: 55% of earnings, max ${fmtRuleAmount(rules.eiParentalMaxWeekly)}/wk, 35 weeks standard.
+- **CCB**: Max ~${fmtRuleAmount(rules.ccbMaxPerChildUnder6)}/yr per child <6. Reduced above ${fmtRuleAmount(rules.ccbPhaseoutStartsAt)} family income.
 
 ### Housing
 - Stress test: contract rate + 2% or 5.25%, whichever is higher.
@@ -282,6 +377,12 @@ The "Guardrail" column shows the MAX you may move FROM each account. NEVER sugge
 
 ## Custom Fund Deduplication
 If existing custom saving goals are listed, do NOT create a new fund with the same or similar name. Instead, suggest depositing into the existing fund.
+
+## Goal Pivot Handling
+If the user says to "forget", "cancel", or "switch from" a previous goal:
+- Treat the old goal as replaced by the new goal.
+- If an old-goal custom fund exists, repurpose it first (move from old fund to new fund).
+- Avoid recommending any new deposits into the old goal unless the user explicitly asks to keep both goals.
 
 ## Output Format
 Return ONLY valid JSON. No markdown fences. No text before or after.
@@ -378,6 +479,17 @@ Every single action MUST pass this test: "Does this DIRECTLY help with the life 
 - Any action where you can't explain in "why" HOW it helps with the specific life event
 - Generic financial advice that would apply to anyone regardless of their life event
 
+### FUNDING STRATEGY (when user can't afford full amount)
+- If the user's source account can cover the full amount → one-time "move" action
+- If the user's source account CANNOT cover the full amount → SPLIT INTO TWO ACTIONS:
+  1. Lump sum: Move what's available now (from_account → destination)
+  2. Automation: Set up monthly deposits for the remainder (from Chequing → destination)
+  Example: User needs $15K for emergency fund but Savings has $8K
+  → Action 1: "Move $8,000 from Savings → Emergency Fund" (lump sum)
+  → Action 2: "Auto-deposit $700/mo from Chequing → Emergency Fund" (builds remaining $7K over 10mo)
+- NEVER suggest an action that requires money the user doesn't have
+- NEVER assume future income deposits — only work with existing balances + monthly surplus
+
 ### CRITICAL: One Source Per Action
 - Each action has exactly ONE "from_account". NEVER suggest pulling from multiple accounts in a single action.
 - If you need to move money from multiple sources, create SEPARATE actions for each source.
@@ -390,6 +502,11 @@ Every single action MUST pass this test: "Does this DIRECTLY help with the life 
 - For FHSA: room = $8,000/yr minus current balance. If balance is $5,250, room is $2,750 — NOT $6,500.
 - Cross-check: if Action 1 uses $10K from Savings, Action 2 can only use the REMAINING Savings balance.
 - If there isn't enough money to do the action, do NOT suggest it.
+
+### CRITICAL: Use Exact Account and Fund Names
+- "from_account" and "to_account" must match the provided account/fund names exactly.
+- For existing custom funds, reuse the exact listed name (do not rename it).
+- If user changed goals, explicitly use the old fund name as source and new fund name as destination.
 
 ### Action Format
 - Each action must be a REAL Wealthsimple action: transfer, open account, create saving goal, set up auto-deposit, pause automation, rebalance.
@@ -418,9 +535,13 @@ Include "research_needed" array when the event needs current internet data (rate
 ## Brevity Rules (CRITICAL — this is a mobile app)
 - Every field has a MAX WORD COUNT. Respect it strictly.
 - **thinking_steps**: 3–5 steps. Title: 2–4 words. Insight: max 10 words with exact $.
-  GOOD: "$18K covers 3.5mo expenses"
-  GOOD: "FHSA: $2,750 room left"
+  EVERY step must be directly about the life event. Never include generic financial health summaries.
+  If the user is ABANDONING a goal ("done with buying a house"), do NOT analyze the old goal — analyze the EXIT (e.g. FHSA withdrawal tax impact, fund reallocation).
+  GOOD: "$18K covers 3.5mo expenses" (if the event is about income loss)
+  GOOD: "FHSA withdrawal costs ~$1.7K tax" (if abandoning home buying)
   BAD: "You have some room in your TFSA that could be utilized" (too long, no numbers)
+  BAD: "Household earns $X/mo" (generic — not about the event)
+  BAD: "Home Buying Feasibility" (when user said they're done with buying)
 - **why**: Max 8 words. Just the benefit.
   GOOD: "Saves $170/yr in interest"
   BAD: "This will help you save money on interest payments over time" (way too long)
@@ -475,3 +596,6 @@ The cashflow phases show how the user's monthly surplus CHANGES over time:
 - ONLY include accounts that are ACTUALLY AFFECTED by your actions. Don't include untouched accounts.
 - **impact_text**: explain WHAT happened to this account (e.g. "Funded FHSA room", "Down payment withdrawn").
 - If the life event affects an account without an action (e.g. mortgage added), include it with the projected change.`;
+}
+
+export const PATHFINDER_SYSTEM_PROMPT = buildPathfinderSystemPrompt();

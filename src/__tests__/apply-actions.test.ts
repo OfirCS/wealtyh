@@ -23,15 +23,17 @@ const BASE_PROFILE: FinancialProfile = {
   essentialExpenses: 1800,
   discretionarySpending: 800,
   debtPayments: 400,
+  creditCardBalance: 0,
 };
 
 function action(overrides: Partial<QuickAction> & Pick<QuickAction, 'type'>): QuickAction {
   return {
     title: 'Test action',
     why: 'Testing',
+    derived_from: 'Tested via algorithm',
     priority: 'do_now',
     ...overrides,
-  };
+  } as QuickAction;
 }
 
 // ── move ────────────────────────────────────────────────────────────────────
@@ -78,7 +80,8 @@ describe('move action', () => {
     const a = action({ type: 'move', amount: 99999, from_account: 'Chequing', to_account: 'Savings' });
     const { profile } = applyConfirmedActions(BASE_PROFILE, [], [0], [a]);
     expect(profile.chequingBalance).toBe(0);
-    expect(profile.savingsBalance).toBe(104999);
+    // Transfer can only move what exists in source ($10,000 chequing)
+    expect(profile.savingsBalance).toBe(15000);
   });
 });
 
@@ -168,16 +171,36 @@ describe('automate action', () => {
 // ── pay_off ─────────────────────────────────────────────────────────────────
 
 describe('pay_off action', () => {
-  it('deducts from source account only', () => {
+  it('deducts from source account for existing credit card debt', () => {
+    const profileWithDebt: FinancialProfile = { ...BASE_PROFILE, creditCardBalance: 3000 };
     const a = action({ type: 'pay_off', amount: 3000, from_account: 'Savings' });
-    const { profile } = applyConfirmedActions(BASE_PROFILE, [], [0], [a]);
+    const { profile } = applyConfirmedActions(profileWithDebt, [], [0], [a]);
     expect(profile.savingsBalance).toBe(2000);
+    expect(profile.creditCardBalance).toBe(0);
   });
 
-  it('defaults to chequing when from_account is omitted', () => {
+  it('defaults to chequing when from_account is omitted and debt exists', () => {
+    const profileWithDebt: FinancialProfile = { ...BASE_PROFILE, creditCardBalance: 1500 };
     const a = action({ type: 'pay_off', amount: 1500 });
-    const { profile } = applyConfirmedActions(BASE_PROFILE, [], [0], [a]);
+    const { profile } = applyConfirmedActions(profileWithDebt, [], [0], [a]);
     expect(profile.chequingBalance).toBe(8500);
+    expect(profile.creditCardBalance).toBe(0);
+  });
+
+  it('reduces credit card balance and source by the paid amount', () => {
+    const profileWithDebt: FinancialProfile = { ...BASE_PROFILE, creditCardBalance: 1200 };
+    const a = action({ type: 'pay_off', amount: 800, from_account: 'Savings' });
+    const { profile } = applyConfirmedActions(profileWithDebt, [], [0], [a]);
+    expect(profile.savingsBalance).toBe(4200);
+    expect(profile.creditCardBalance).toBe(400);
+  });
+
+  it('does not over-deduct source when debt is smaller than requested payoff', () => {
+    const profileWithDebt: FinancialProfile = { ...BASE_PROFILE, creditCardBalance: 500 };
+    const a = action({ type: 'pay_off', amount: 1500, from_account: 'Chequing' });
+    const { profile } = applyConfirmedActions(profileWithDebt, [], [0], [a]);
+    expect(profile.chequingBalance).toBe(9500);
+    expect(profile.creditCardBalance).toBe(0);
   });
 });
 
@@ -278,13 +301,55 @@ describe('multiple sequential actions', () => {
       action({ type: 'create_fund', amount: 1000, from_account: 'Chequing', to_account: 'Emergency Fund' }),
       action({ type: 'pay_off', amount: 500, from_account: 'Chequing' }),
     ];
-    const { profile, customFunds } = applyConfirmedActions(BASE_PROFILE, [], [0, 1, 2], actions);
+    const profileWithDebt: FinancialProfile = { ...BASE_PROFILE, creditCardBalance: 500 };
+    const { profile, customFunds } = applyConfirmedActions(profileWithDebt, [], [0, 1, 2], actions);
     // Chequing: 10000 - 2000 - 1000 - 500 = 6500
     expect(profile.chequingBalance).toBe(6500);
     expect(profile.tfsaBalance).toBe(22000);
     expect(profile.tfsaRoom).toBe(5000);
+    expect(profile.creditCardBalance).toBe(0);
     expect(customFunds).toHaveLength(1);
     expect(customFunds[0].balance).toBe(1000);
+  });
+});
+
+describe('goal pivot flow', () => {
+  it('repurposes old travel fund into emergency fund after user changes mind', () => {
+    const startProfile: FinancialProfile = {
+      ...BASE_PROFILE,
+      chequingBalance: 7000,
+      tfsaBalance: 2000,
+      tfsaRoom: 7000,
+    };
+
+    const openTravelFund = action({
+      type: 'create_fund',
+      amount: 5000,
+      from_account: 'Chequing',
+      to_account: 'Thailand Savings Fund',
+    });
+    const afterTravel = applyConfirmedActions(startProfile, [], [0], [openTravelFund]);
+    expect(afterTravel.profile.chequingBalance).toBe(2000);
+
+    const switchToEmergency = action({
+      type: 'move',
+      amount: 5000,
+      from_account: 'Thailand account',
+      to_account: 'Emergency Fund',
+    });
+    const afterPivot = applyConfirmedActions(
+      afterTravel.profile,
+      afterTravel.customFunds,
+      [0],
+      [switchToEmergency],
+    );
+
+    const thailandFund = afterPivot.customFunds.find((f) => f.name === 'Thailand Savings Fund');
+    const emergencyFund = afterPivot.customFunds.find((f) => f.name === 'Emergency Fund');
+
+    expect(afterPivot.profile.chequingBalance).toBe(2000);
+    expect(thailandFund?.balance).toBe(0);
+    expect(emergencyFund?.balance).toBe(5000);
   });
 });
 
@@ -309,5 +374,53 @@ describe('account key resolution', () => {
     const { profile } = applyConfirmedActions(BASE_PROFILE, [], [0], [a]);
     expect(profile.tfsaBalance).toBe(21000);
     expect(profile.tfsaRoom).toBe(6000);
+  });
+
+  it('moves from existing custom fund without creating money', () => {
+    const existingFunds: CustomFund[] = [{ name: 'Thailand Trip Fund', balance: 3000, emoji: '✈️' }];
+    const a = action({
+      type: 'move',
+      amount: 2000,
+      from_account: 'Thailand Trip Fund',
+      to_account: 'Emergency Fund',
+    });
+    const { profile, customFunds } = applyConfirmedActions(BASE_PROFILE, existingFunds, [0], [a]);
+
+    expect(profile.chequingBalance).toBe(BASE_PROFILE.chequingBalance);
+
+    const thailandFund = customFunds.find((f) => f.name === 'Thailand Trip Fund');
+    const emergencyFund = customFunds.find((f) => f.name === 'Emergency Fund');
+    expect(thailandFund?.balance).toBe(1000);
+    expect(emergencyFund?.balance).toBe(2000);
+  });
+
+  it('matches custom fund source by partial wording', () => {
+    const existingFunds: CustomFund[] = [{ name: 'Thailand Trip Fund', balance: 3000, emoji: '✈️' }];
+    const a = action({
+      type: 'move',
+      amount: 1500,
+      from_account: 'Thailand account',
+      to_account: 'Emergency Fund',
+    });
+    const { profile, customFunds } = applyConfirmedActions(BASE_PROFILE, existingFunds, [0], [a]);
+
+    expect(profile.chequingBalance).toBe(BASE_PROFILE.chequingBalance);
+
+    const thailandFund = customFunds.find((f) => f.name === 'Thailand Trip Fund');
+    const emergencyFund = customFunds.find((f) => f.name === 'Emergency Fund');
+    expect(thailandFund?.balance).toBe(1500);
+    expect(emergencyFund?.balance).toBe(1500);
+  });
+
+  it('does not apply move when source account is unknown', () => {
+    const a = action({
+      type: 'move',
+      amount: 500,
+      from_account: 'Unknown Source',
+      to_account: 'Emergency Fund',
+    });
+    const { profile, customFunds } = applyConfirmedActions(BASE_PROFILE, [], [0], [a]);
+    expect(profile).toEqual(BASE_PROFILE);
+    expect(customFunds).toEqual([]);
   });
 });

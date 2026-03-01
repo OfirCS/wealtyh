@@ -42,7 +42,7 @@ test('submit event → thinking → plan view', async ({ page }) => {
   await page.getByLabel('Open Pathfinder').click();
 
   // Type an event and submit
-  const input = page.getByPlaceholder("I'm thinking about quitting my job to...");
+  const input = page.locator('textarea').first();
   await input.fill('I want to build an emergency fund');
   await input.press('Enter');
 
@@ -57,7 +57,7 @@ test('confirm action and return home with feedback', async ({ page }) => {
 
   // Submit event
   await page.getByLabel('Open Pathfinder').click();
-  const input = page.getByPlaceholder("I'm thinking about quitting my job to...");
+  const input = page.locator('textarea').first();
   await input.fill('I want to build an emergency fund');
   await input.press('Enter');
   await expect(page.getByText('Your Pathfinder')).toBeVisible({ timeout: 10_000 });
@@ -90,7 +90,7 @@ test('dismiss feedback banner', async ({ page }) => {
 
   // Fast path: submit + confirm + return
   await page.getByLabel('Open Pathfinder').click();
-  const input = page.getByPlaceholder("I'm thinking about quitting my job to...");
+  const input = page.locator('textarea').first();
   await input.fill('I want to build an emergency fund');
   await input.press('Enter');
   await expect(page.getByText('Your Pathfinder')).toBeVisible({ timeout: 10_000 });
@@ -110,7 +110,7 @@ test('plan view tab navigation', async ({ page }) => {
   await page.goto('/');
 
   await page.getByLabel('Open Pathfinder').click();
-  const input = page.getByPlaceholder("I'm thinking about quitting my job to...");
+  const input = page.locator('textarea').first();
   await input.fill('I want to build an emergency fund');
   await input.press('Enter');
   await expect(page.getByText('Your Pathfinder')).toBeVisible({ timeout: 10_000 });
@@ -135,7 +135,7 @@ test('start over returns to home', async ({ page }) => {
   await page.goto('/');
 
   await page.getByLabel('Open Pathfinder').click();
-  const input = page.getByPlaceholder("I'm thinking about quitting my job to...");
+  const input = page.locator('textarea').first();
   await input.fill('I want to build an emergency fund');
   await input.press('Enter');
   await expect(page.getByText('Your Pathfinder')).toBeVisible({ timeout: 10_000 });

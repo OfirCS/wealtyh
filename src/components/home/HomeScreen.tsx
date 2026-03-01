@@ -1,10 +1,13 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { SUGGESTION_CHIPS } from "@/lib/defaults";
+import { getDynamicSuggestionChips } from "@/lib/defaults";
+import { computeDerivedMetrics, getCanadianRuleSet } from "@/lib/prompts";
 import type { FinancialProfile, CustomFund, AppliedSummary } from "@/lib/types";
 import PromptInput from "@/components/prompt/PromptInput";
+import ProactiveAlerts from "./ProactiveAlerts";
 import CurrencyInput from "@/components/ui/CurrencyInput";
 import RangeSlider from "@/components/ui/RangeSlider";
 import SelectInput from "@/components/ui/SelectInput";
@@ -16,6 +19,7 @@ interface HomeScreenProps {
   onProfileChange: (profile: FinancialProfile) => void;
   onCustomFundsChange: (customFunds: CustomFund[]) => void;
   onSubmit: (event: string) => void;
+  onPromptOpenChange?: (isOpen: boolean) => void;
 }
 
 function RemoveButton({ onRemove }: { onRemove: () => void }) {
@@ -25,7 +29,7 @@ function RemoveButton({ onRemove }: { onRemove: () => void }) {
         e.stopPropagation();
         onRemove();
       }}
-      className="absolute -top-2.5 -right-2.5 w-8 h-8 flex items-center justify-center rounded-full bg-[var(--ws-bg-primary)] shadow-[0_4px_12px_rgba(0,0,0,0.12)] border border-[#D94343]/20 text-[#D94343] opacity-100 md:opacity-0 group-hover:opacity-100 hover:bg-[#D94343] hover:text-white transition-all duration-300 z-10 hover:scale-110 active:scale-90"
+      className="absolute -top-2.5 -right-2.5 w-8 h-8 flex items-center justify-center rounded-full bg-[var(--ws-bg-primary)] shadow-[0_4px_12px_rgba(0,0,0,0.12)] border border-[var(--ws-border)] text-[var(--ws-text-primary)] opacity-100 md:opacity-0 group-hover:opacity-100 hover:bg-[#D94343] hover:border-[#D94343] hover:text-white transition-all duration-300 z-10 hover:scale-110 active:scale-90"
       aria-label="Remove account"
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -92,17 +96,33 @@ export default function HomeScreen({
   onProfileChange,
   onCustomFundsChange,
   onSubmit,
+  onPromptOpenChange,
 }: HomeScreenProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState<FinancialProfile>(profile);
   const [tfsaExpanded, setTfsaExpanded] = useState(false);
   const [chequingExpanded, setChequingExpanded] = useState(false);
-  const [editSection, setEditSection] = useState<"income" | "accounts" | "expenses">("income");
+  const [editSection, setEditSection] = useState<"accounts" | "expenses">("accounts");
   const [summaryVisible, setSummaryVisible] = useState(true);
   const [showPromptOverlay, setShowPromptOverlay] = useState(false);
+  const [promptSeed, setPromptSeed] = useState("");
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
 
   const p = profile;
+  const rules = useMemo(() => getCanadianRuleSet(), []);
+  const metrics = useMemo(() => computeDerivedMetrics(p, customFunds), [p, customFunds]);
+  const suggestionChips = useMemo(
+    () => getDynamicSuggestionChips(p, customFunds),
+    [p, customFunds],
+  );
+  const promptPlaceholder = "What's changing in your life?";
+  const pathfinderTriggerLabel = "Try Pathfinder via Wealthsimple";
+
   const totalBalance =
     (p.chequingBalance > 0 ? p.chequingBalance : 0) +
     (p.savingsBalance > 0 ? p.savingsBalance : 0) +
@@ -112,12 +132,25 @@ export default function HomeScreen({
     (p.nonRegBalance > 0 ? p.nonRegBalance : 0) -
     (p.creditCardBalance > 0 ? p.creditCardBalance : 0) +
     customFunds.reduce((sum, f) => sum + (f.balance > 0 ? f.balance : 0), 0);
+
+  const monthlyOutflow =
+    p.housingExpense +
+    p.essentialExpenses +
+    p.discretionarySpending +
+    p.debtPayments;
+  const chequingReserve = Math.min(p.chequingBalance, monthlyOutflow);
+  const chequingAvailable = Math.max(0, p.chequingBalance - chequingReserve);
+  const chequingReserveMonths = monthlyOutflow > 0 ? chequingReserve / monthlyOutflow : 0;
+  const estimatedCardInterest = (p.creditCardBalance * 0.1999) / 12;
+  const fhsaRoomLeft = metrics.isFirstTimeBuyer ? Math.max(0, rules.fhsaAnnualRoom - p.fhsaBalance) : 0;
+  const rrspRefundEstimate = Math.round(Math.min(p.rrspRoom, Math.max(0, metrics.monthlySurplus * 12)) * 0.3);
+  const tfsaFillMonths = metrics.monthlySurplus > 0 ? p.tfsaRoom / metrics.monthlySurplus : null;
   const showSummary = summaryVisible && !!appliedSummary && appliedSummary.actions.length > 0;
 
   const startEdit = useCallback(() => {
     setDraft(profile);
     setIsEditing(true);
-    setEditSection("income");
+    setEditSection("accounts");
     setSummaryVisible(false);
   }, [profile]);
 
@@ -129,6 +162,22 @@ export default function HomeScreen({
   const cancelEdit = useCallback(() => {
     setIsEditing(false);
   }, []);
+
+  const openPromptOverlay = useCallback((seed = "") => {
+    setPromptSeed(seed);
+    setShowPromptOverlay(true);
+    onPromptOpenChange?.(true);
+  }, [onPromptOpenChange]);
+
+  const closePromptOverlay = useCallback(() => {
+    setShowPromptOverlay(false);
+    onPromptOpenChange?.(false);
+  }, [onPromptOpenChange]);
+
+  const handlePathfinderClick = useCallback(() => {
+    openPromptOverlay("");
+  }, [openPromptOverlay]);
+
 
   const updateField = useCallback(
     <K extends keyof FinancialProfile>(key: K, value: FinancialProfile[K]) => {
@@ -151,7 +200,7 @@ export default function HomeScreen({
           >
             <div className="flex justify-between items-start mb-6 px-1 mt-4">
               <div className="flex flex-col">
-                <span className="text-[14px] font-medium text-[var(--ws-text-secondary)] mb-1">Total balance</span>
+                <span className="text-[14px] font-medium text-[var(--ws-text-secondary)] mb-1">Total</span>
                 <h2 className="text-[40px] leading-none font-serif tracking-tight text-[var(--ws-text-primary)]">
                   {formatCurrency(totalBalance)}
                 </h2>
@@ -230,7 +279,9 @@ export default function HomeScreen({
                     </div>
                     <div className="flex flex-col items-end">
                       <span className="text-[17px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.creditCardBalance)}</span>
-                      <span className="text-[13px] font-bold text-[#148749] tracking-tight">+$57.64 cash back</span>
+                      <span className="text-[13px] font-semibold text-[#D94343] tracking-tight">
+                        ~{formatCurrency(estimatedCardInterest)}/mo interest
+                      </span>
                     </div>
                   </div>
                 </motion.div>
@@ -254,11 +305,14 @@ export default function HomeScreen({
                     onClick={() => setChequingExpanded(!chequingExpanded)}
                   >
                     <div className={`flex items-center justify-between transition-all duration-300 ${chequingExpanded ? "mb-4" : ""}`}>
+                      <div className="flex items-center gap-2">
                       <span className="text-[17px] font-semibold text-[var(--ws-text-secondary)]">Chequing</span>
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-[var(--ws-accent-green)]/10 text-[var(--ws-accent-green)]">1.25%</span>
+                    </div>
                       <div className="flex flex-col items-end">
                         <div className="flex items-center gap-2">
                           <span className="text-[17px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.chequingBalance)}</span>
-                          <div className="w-7 h-7 rounded-[8px] bg-[#32302F] flex items-center justify-center text-[var(--ws-text-primary)] transition-transform duration-300">
+                          <div className="w-7 h-7 rounded-[8px] bg-[var(--ws-bg-elevated)] border border-[var(--ws-border)] flex items-center justify-center text-[var(--ws-text-tertiary)] transition-transform duration-300">
                             {chequingExpanded ? (
                               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="rotate-180 transition-transform">
                                 <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -288,23 +342,25 @@ export default function HomeScreen({
                           <div className="flex flex-col gap-4 mt-2">
                             <div className="flex items-center justify-between">
                               <div className="flex flex-col">
-                                <span className="text-[20px] mb-1">{"\u{1F4B3}"}</span>
-                                <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">Main Chequing</span>
+                                <span className="text-[20px] mb-1">{"\u{1F4C5}"}</span>
+                                <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">Reserved</span>
                               </div>
                               <div className="flex flex-col items-end">
-                                <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.chequingBalance * 0.85)}</span>
-                                <span className="text-[13px] text-[var(--ws-text-tertiary)]">Everyday spending</span>
+                                <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(chequingReserve)}</span>
+                                <span className="text-[13px] text-[var(--ws-text-tertiary)]">
+                                  {chequingReserveMonths.toFixed(1)}mo of bills
+                                </span>
                               </div>
                             </div>
 
                             <div className="flex items-center justify-between">
                               <div className="flex flex-col">
-                                <span className="text-[20px] mb-1">{"\u{1F3E6}"}</span>
-                                <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">Joint Account</span>
+                                <span className="text-[20px] mb-1">{"\u{1F4B8}"}</span>
+                                <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">Available</span>
                               </div>
                               <div className="flex flex-col items-end">
-                                <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.chequingBalance * 0.15)}</span>
-                                <span className="text-[13px] text-[var(--ws-text-tertiary)]">Shared expenses</span>
+                                <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(chequingAvailable)}</span>
+                                <span className="text-[13px] text-[var(--ws-text-tertiary)]">Ready to move</span>
                               </div>
                             </div>
                           </div>
@@ -330,11 +386,14 @@ export default function HomeScreen({
                   <RemoveButton onRemove={() => onProfileChange({ ...p, savingsBalance: 0 })} />
                   <div className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex items-end justify-between cursor-pointer w-full">
                     <div className="flex flex-col gap-1">
-                      <span className="text-[18px]" role="img" aria-label="US Flag">{"\uD83C\uDDFA\uD83C\uDDF8"}</span>
-                      <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">USD savings</span>
+                      <span className="text-[18px]" role="img" aria-label="Savings">{"\uD83D\uDCB5"}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">Savings</span>
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-[var(--ws-accent-green)]/10 text-[var(--ws-accent-green)]">2.25%</span>
+                      </div>
                     </div>
                     <div className="flex flex-col items-end">
-                      <span className="text-[17px] font-bold text-[var(--ws-text-primary)] pb-0.5">{formatCurrency(p.savingsBalance)} USD</span>
+                      <span className="text-[17px] font-bold text-[var(--ws-text-primary)] pb-0.5">{formatCurrency(p.savingsBalance)}</span>
                       {showSummary && appliedSummary?.balanceChanges.savingsBalance && (
                         <BalanceChange delta={appliedSummary.balanceChanges.savingsBalance} />
                       )}
@@ -361,11 +420,14 @@ export default function HomeScreen({
                     onClick={() => setTfsaExpanded(!tfsaExpanded)}
                   >
                     <div className={`flex items-center justify-between transition-all duration-300 ${tfsaExpanded ? "mb-4" : ""}`}>
-                      <span className="text-[17px] font-semibold text-[var(--ws-text-secondary)]">TFSA</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[17px] font-semibold text-[var(--ws-text-secondary)]">TFSA</span>
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-[var(--ws-accent-green)]/10 text-[var(--ws-accent-green)]">Tax-free</span>
+                      </div>
                       <div className="flex flex-col items-end">
                         <div className="flex items-center gap-2">
                           <span className="text-[17px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.tfsaBalance)}</span>
-                          <div className="w-7 h-7 rounded-[8px] bg-[#32302F] flex items-center justify-center text-[var(--ws-text-primary)] transition-transform duration-300">
+                          <div className="w-7 h-7 rounded-[8px] bg-[var(--ws-bg-elevated)] border border-[var(--ws-border)] flex items-center justify-center text-[var(--ws-text-tertiary)] transition-transform duration-300">
                             {tfsaExpanded ? (
                               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="rotate-180 transition-transform">
                                 <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -395,37 +457,42 @@ export default function HomeScreen({
                           <div className="flex flex-col gap-4 mt-2">
                             <div className="flex items-center justify-between">
                               <div className="flex flex-col">
-                                <span className="text-[20px] mb-1">{"\u2708\uFE0F"}</span>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">TFSA</span>
-                                  <span className="px-1.5 py-0.5 bg-[var(--ws-bg-primary)] rounded font-semibold text-[11px] text-[var(--ws-text-primary)] tracking-wide">Managed</span>
-                                </div>
+                                <span className="text-[20px] mb-1">{"\uD83D\uDCC5"}</span>
+                                <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">Room left</span>
                               </div>
                               <div className="flex flex-col items-end">
-                                <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.tfsaBalance * 0.25)}</span>
-                                <span className="text-[13px] font-bold text-[#148749] tracking-tight">+29.92% all time</span>
+                                <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.tfsaRoom)}</span>
+                                <span className="text-[13px] text-[var(--ws-text-tertiary)]">This year</span>
                               </div>
                             </div>
 
                             <div className="flex items-center justify-between">
                               <div className="flex flex-col">
-                                <span className="text-[20px] mb-1">{"\uD83C\uDFE6"}</span>
-                                <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">TFSA</span>
+                                <span className="text-[20px] mb-1">{"\u23F1\uFE0F"}</span>
+                                <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">Time to fill</span>
                               </div>
                               <div className="flex flex-col items-end">
-                                <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.tfsaBalance * 0.62)}</span>
-                                <span className="text-[13px] font-bold text-[#148749] tracking-tight">+20.67% all time</span>
+                                <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">
+                                  {tfsaFillMonths !== null ? `${tfsaFillMonths.toFixed(1)} mo` : "n/a"}
+                                </span>
+                                <span className="text-[13px] text-[var(--ws-text-tertiary)]">
+                                  {metrics.monthlySurplus > 0
+                                    ? `At ${formatCurrency(metrics.monthlySurplus)}/mo`
+                                    : "No surplus"}
+                                </span>
                               </div>
                             </div>
 
                             <div className="flex items-center justify-between">
                               <div className="flex flex-col">
-                                <span className="text-[20px] mb-1">{"\uD83D\uDC76\uD83C\uDFFB"}</span>
-                                <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">TFSA</span>
+                                <span className="text-[20px] mb-1">{"\uD83D\uDCCA"}</span>
+                                <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">Utilization</span>
                               </div>
                               <div className="flex flex-col items-end">
-                                <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.tfsaBalance * 0.13)}</span>
-                                <span className="text-[13px] font-bold text-[#148749] tracking-tight">+6.17% all time</span>
+                                <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{metrics.tfsaUtilization}%</span>
+                                <span className="text-[13px] text-[var(--ws-text-tertiary)]">
+                                  {formatCurrency(p.tfsaBalance)} invested
+                                </span>
                               </div>
                             </div>
                           </div>
@@ -452,11 +519,18 @@ export default function HomeScreen({
                   <div className="bg-[var(--ws-bg-surface)] rounded-[16px] p-4 shadow-sm border border-[var(--ws-border)] flex items-end justify-between cursor-pointer w-full">
                     <div className="flex flex-col gap-1">
                       <span className="text-[20px]">{"\uD83C\uDFE0"}</span>
-                      <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">FHSA</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">FHSA</span>
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-[var(--ws-accent-green)]/10 text-[var(--ws-accent-green)]">Triple tax</span>
+                      </div>
                     </div>
                     <div className="flex flex-col items-end">
                       <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.fhsaBalance)}</span>
-                      <span className="text-[13px] font-bold text-[#148749] tracking-tight">+5.07% all time</span>
+                      <span className="text-[13px] text-[var(--ws-text-tertiary)]">
+                        {metrics.isFirstTimeBuyer
+                          ? `${formatCurrency(fhsaRoomLeft)} room left`
+                          : "Not eligible (homeowner)"}
+                      </span>
                       {showSummary && appliedSummary?.balanceChanges.fhsaBalance && (
                         <BalanceChange delta={appliedSummary.balanceChanges.fhsaBalance} />
                       )}
@@ -482,13 +556,18 @@ export default function HomeScreen({
                     <div className="flex flex-col gap-1">
                       <span className="text-[20px]">{"\u26D4\uFE0F"}</span>
                       <div className="flex items-center gap-1.5">
-                        <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">RRSP</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[15px] font-medium text-[var(--ws-text-secondary)]">RRSP</span>
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-[var(--ws-accent-green)]/10 text-[var(--ws-accent-green)]">Tax-deferred</span>
+                        </div>
                         <span className="px-1.5 py-0.5 bg-[var(--ws-bg-primary)] rounded font-semibold text-[11px] text-[var(--ws-text-primary)] tracking-wide">Managed</span>
                       </div>
                     </div>
                     <div className="flex flex-col items-end">
                       <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.rrspBalance)}</span>
-                      <span className="text-[13px] font-bold text-[#148749] tracking-tight">+26.15% all time</span>
+                      <span className="text-[13px] text-[var(--ws-text-tertiary)]">
+                        {formatCurrency(p.rrspRoom)} room | ~{formatCurrency(rrspRefundEstimate)} refund
+                      </span>
                       {showSummary && appliedSummary?.balanceChanges.rrspBalance && (
                         <BalanceChange delta={appliedSummary.balanceChanges.rrspBalance} />
                       )}
@@ -517,7 +596,7 @@ export default function HomeScreen({
                     </div>
                     <div className="flex flex-col items-end">
                       <span className="text-[16px] font-bold text-[var(--ws-text-primary)]">{formatCurrency(p.nonRegBalance)}</span>
-                      <span className="text-[13px] font-bold text-[#148749] tracking-tight">+12.34% all time</span>
+                      <span className="text-[13px] text-[var(--ws-text-tertiary)]">No room limits</span>
                       {showSummary && appliedSummary?.balanceChanges.nonRegBalance && (
                         <BalanceChange delta={appliedSummary.balanceChanges.nonRegBalance} />
                       )}
@@ -581,7 +660,7 @@ export default function HomeScreen({
             {/* Edit header */}
             <div className="flex justify-between items-center px-1">
               <h2 className="text-[22px] font-bold tracking-tight text-[var(--ws-text-primary)]">
-                Edit Snapshot
+                Edit Profile
               </h2>
               <div className="flex gap-3">
                 <button
@@ -602,14 +681,14 @@ export default function HomeScreen({
             </div>
 
             {/* Section tabs */}
-            <div className="flex bg-[#E8E4DD] p-[3px] rounded-full">
-              {(["income", "accounts", "expenses"] as const).map((tab) => (
+            <div className="flex bg-[var(--ws-bg-dark)] p-[3px] rounded-full">
+              {(["accounts", "expenses"] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setEditSection(tab)}
                   className={`flex-1 text-[12px] font-bold py-1.5 rounded-full capitalize transition-all duration-200 ${editSection === tab
-                    ? "text-[var(--ws-text-primary)] shadow-sm bg-[var(--ws-bg-surface)]"
-                    : "text-[#88837E] hover:text-[var(--ws-text-primary)]"
+                    ? "text-[var(--ws-text-primary)] shadow-sm bg-[var(--ws-bg-elevated)]"
+                    : "text-[var(--ws-text-tertiary)] hover:text-[var(--ws-text-primary)]"
                     }`}
                 >
                   {tab}
@@ -618,48 +697,6 @@ export default function HomeScreen({
             </div>
 
             <AnimatePresence mode="wait">
-              {editSection === "income" && (
-                <motion.div
-                  key="income"
-                  initial={{ opacity: 0, x: -8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 8 }}
-                  transition={{ duration: 0.15 }}
-                  className="bg-[var(--ws-bg-surface)] rounded-[20px] border border-[var(--ws-border)] p-5 shadow-sm"
-                >
-                  <p className="text-[11px] font-semibold text-[var(--ws-text-tertiary)] uppercase tracking-wider mb-4">
-                    Income & Employment
-                  </p>
-                  <div className="flex flex-col gap-4">
-                    <CurrencyInput
-                      label="Your annual income"
-                      value={draft.annualIncome}
-                      onChange={(v) => updateField("annualIncome", v)}
-                    />
-                    <CurrencyInput
-                      label="Partner annual income"
-                      value={draft.partnerIncome}
-                      onChange={(v) => updateField("partnerIncome", v)}
-                    />
-                    <SelectInput
-                      label="Employment type"
-                      value={draft.employmentType}
-                      onChange={(v) => updateField("employmentType", v as FinancialProfile["employmentType"])}
-                      options={EMPLOYMENT_OPTIONS}
-                    />
-                    <SelectInput
-                      label="Province"
-                      value={draft.province}
-                      onChange={(v) => updateField("province", v)}
-                      options={PROVINCE_OPTIONS}
-                    />
-                  </div>
-                  <p className="text-[12px] text-[var(--ws-text-tertiary)] mt-4 leading-relaxed">
-                    Used for tax and benefit calculations.
-                  </p>
-                </motion.div>
-              )}
-
               {editSection === "accounts" && (
                 <motion.div
                   key="accounts"
@@ -670,7 +707,7 @@ export default function HomeScreen({
                   className="bg-[var(--ws-bg-surface)] rounded-[20px] border border-[var(--ws-border)] p-5 shadow-sm"
                 >
                   <p className="text-[11px] font-semibold text-[var(--ws-text-tertiary)] uppercase tracking-wider mb-4">
-                    Account Balances
+                    Balances
                   </p>
                   <div className="flex flex-col gap-4">
                     <RangeSlider
@@ -681,11 +718,11 @@ export default function HomeScreen({
                       formatValue={formatCurrency}
                     />
                     <RangeSlider
-                      label="Savings (USD)"
+                      label="Savings"
                       value={draft.savingsBalance}
                       min={0} max={150000} step={500}
                       onChange={(v) => updateField("savingsBalance", v)}
-                      formatValue={(v) => formatCurrency(v) + " USD"}
+                      formatValue={formatCurrency}
                     />
                     <RangeSlider
                       label="TFSA"
@@ -708,10 +745,17 @@ export default function HomeScreen({
                       onChange={(v) => updateField("rrspBalance", v)}
                       formatValue={formatCurrency}
                     />
+                    <RangeSlider
+                      label="Non-Registered"
+                      value={draft.nonRegBalance}
+                      min={0} max={200000} step={1000}
+                      onChange={(v) => updateField("nonRegBalance", v)}
+                      formatValue={formatCurrency}
+                    />
 
                     <div className="border-t border-[var(--ws-border)] pt-3 mt-1">
                       <p className="text-[11px] text-[var(--ws-text-tertiary)] uppercase tracking-wider font-semibold mb-3">
-                        Contribution room
+                        Room
                       </p>
                       <div className="grid grid-cols-2 gap-3">
                         <CurrencyInput
@@ -727,10 +771,22 @@ export default function HomeScreen({
                       </div>
                     </div>
                     <CurrencyInput
-                      label="Credit Card Balance"
+                      label="Credit card"
                       value={draft.creditCardBalance}
                       onChange={(v) => updateField("creditCardBalance", v)}
                     />
+
+                    <div className="border-t border-[var(--ws-border)] pt-3 mt-1">
+                      <p className="text-[11px] text-[var(--ws-text-tertiary)] uppercase tracking-wider font-semibold mb-3">
+                        Location
+                      </p>
+                      <SelectInput
+                        label="Province"
+                        value={draft.province}
+                        onChange={(v) => updateField("province", v)}
+                        options={PROVINCE_OPTIONS}
+                      />
+                    </div>
                   </div>
                 </motion.div>
               )}
@@ -745,38 +801,38 @@ export default function HomeScreen({
                   className="bg-[var(--ws-bg-surface)] rounded-[20px] border border-[var(--ws-border)] p-5 shadow-sm"
                 >
                   <p className="text-[11px] font-semibold text-[var(--ws-text-tertiary)] uppercase tracking-wider mb-4">
-                    Monthly expenses
+                    Expenses
                   </p>
                   <div className="flex flex-col gap-4">
                     <SelectInput
-                      label="Housing type"
+                      label="Housing"
                       value={draft.housingType}
                       onChange={(v) => updateField("housingType", v as "rent" | "own")}
                       options={HOUSING_OPTIONS}
                     />
                     <CurrencyInput
-                      label={draft.housingType === "rent" ? "Rent / month" : "Mortgage / month"}
+                      label={draft.housingType === "rent" ? "Rent/mo" : "Mortgage/mo"}
                       value={draft.housingExpense}
                       onChange={(v) => updateField("housingExpense", v)}
                     />
                     <CurrencyInput
-                      label="Essentials / month"
+                      label="Essentials/mo"
                       value={draft.essentialExpenses}
                       onChange={(v) => updateField("essentialExpenses", v)}
                     />
                     <CurrencyInput
-                      label="Fun spending / month"
+                      label="Fun/mo"
                       value={draft.discretionarySpending}
                       onChange={(v) => updateField("discretionarySpending", v)}
                     />
                     <CurrencyInput
-                      label="Debt payments / month"
+                      label="Debt/mo"
                       value={draft.debtPayments}
                       onChange={(v) => updateField("debtPayments", v)}
                     />
                     {draft.housingType === "own" && (
                       <CurrencyInput
-                        label="Mortgage balance"
+                        label="Mortgage"
                         value={draft.mortgageBalance}
                         onChange={(v) => updateField("mortgageBalance", v)}
                       />
@@ -786,7 +842,7 @@ export default function HomeScreen({
                   {/* Quick summary */}
                   <div className="mt-4 pt-3 border-t border-[var(--ws-border)]">
                     <div className="flex justify-between items-center">
-                      <span className="text-[13px] text-[var(--ws-text-secondary)]">Total monthly outflow</span>
+                      <span className="text-[13px] text-[var(--ws-text-secondary)]">Total/mo</span>
                       <span className="text-[15px] font-bold text-[var(--ws-text-primary)] tabular-nums">
                         {formatCurrency(
                           draft.housingExpense +
@@ -804,68 +860,81 @@ export default function HomeScreen({
         )}
       </AnimatePresence>
 
-      {/* Floating Action Button (FAB) + Bottom Sheet Overlay */}
+
+
+      {/* Action Button (Closed Prompt) */}
       <AnimatePresence>
         {!showPromptOverlay && !isEditing && (
           <motion.div
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0, opacity: 0 }}
-            transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-            className="fixed bottom-6 right-6 sm:bottom-10 sm:right-10 z-40 flex flex-col items-center gap-2"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ type: "spring", bounce: 0, duration: 0.5 }}
+            className="w-full mt-2 mb-8"
           >
             <button
               type="button"
-              onClick={() => setShowPromptOverlay(true)}
-              className="w-14 h-14 rounded-full bg-[var(--ws-text-primary)] text-[var(--ws-bg-primary)] shadow-[0_8px_30px_rgb(0,0,0,0.5)] border border-[var(--ws-text-primary)]/20 flex flex-col items-center justify-center cursor-pointer hover:scale-105 active:scale-95 transition-transform group"
+              onClick={handlePathfinderClick}
+              className="w-full h-14 md:h-16 px-5 sm:px-6 rounded-[24px] bg-[var(--ws-bg-primary)] shadow-[var(--ws-shadow-lg)] border border-[var(--ws-border)] flex items-center gap-3 sm:gap-4 cursor-pointer hover:border-[var(--ws-text-tertiary)] hover:translate-y-[-2px] transition-all duration-300 group"
               aria-label="Open Pathfinder"
             >
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 3v5" />
-                <path d="M12 16v5" />
-                <path d="M3 12h5" />
-                <path d="M16 12h5" />
-                <path d="M6 6l3.5 3.5" />
-                <path d="M14.5 15.5l3.5 3.5" />
-                {/* Winding path tweak cutting through */}
-                <path d="M5 19 L 10 14 C 12 12, 12 12, 14 10 L 19 5" />
-              </svg>
+              <div className="w-8 h-8 md:w-9 md:h-9 rounded-full bg-[var(--ws-text-primary)] text-[var(--ws-bg-primary)] flex items-center justify-center shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 3v5" />
+                  <path d="M12 16v5" />
+                  <path d="M3 12h5" />
+                  <path d="M16 12h5" />
+                  <path d="M6 6l3.5 3.5" />
+                  <path d="M14.5 15.5l3.5 3.5" />
+                  <path d="M5 19 L 10 14 C 12 12, 12 12, 14 10 L 19 5" />
+                </svg>
+              </div>
+              <span className="font-medium text-[15px] sm:text-[16px] text-[var(--ws-text-secondary)] flex-1 truncate">
+                {pathfinderTriggerLabel}
+              </span>
+              <div className="shrink-0 text-[13px] font-bold text-[var(--ws-text-inverse)] bg-[var(--ws-text-primary)] px-3.5 py-1.5 rounded-full transition-transform group-hover:scale-105">
+                Ask
+              </div>
             </button>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {showPromptOverlay && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
-              onClick={() => setShowPromptOverlay(false)}
-            />
-            <motion.div
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
-              transition={{ type: "spring", damping: 28, stiffness: 220 }}
-              className="fixed bottom-0 left-0 right-0 z-50 flex flex-col justify-end w-full max-w-5xl mx-auto"
-            >
+      {showPromptOverlay && mounted && typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          <motion.div
+            key="prompt-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="fixed inset-0 bg-black/40 backdrop-blur-md z-40"
+            onClick={closePromptOverlay}
+          />
+          <motion.div
+            key="prompt-sheet"
+            initial={{ y: "100%", opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: "100%", opacity: 0, transition: { duration: 0.3 } }}
+            transition={{ type: "spring", damping: 25, stiffness: 200 }}
+            className="fixed bottom-6 left-0 right-0 z-50 flex flex-col justify-end w-full max-w-4xl mx-auto px-4"
+          >
               <PromptInput
                 onSubmit={(val) => {
-                  setShowPromptOverlay(false);
+                  closePromptOverlay();
                   setTimeout(() => {
                     onSubmit(val);
                   }, 300);
                 }}
-                chips={SUGGESTION_CHIPS}
+                chips={suggestionChips}
+                placeholder={promptPlaceholder}
+                initialText={promptSeed}
+                autoFocus
               />
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
+          </motion.div>
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 }

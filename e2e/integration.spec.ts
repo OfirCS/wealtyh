@@ -11,7 +11,7 @@ test('@integration full flow with real AI', async ({ page }) => {
 
   // Open prompt and submit a simple event
   await page.getByLabel('Open Pathfinder').click();
-  const input = page.getByPlaceholder("I'm thinking about quitting my job to...");
+  const input = page.locator('textarea').first();
   await input.fill('I want to pay off my debt faster');
   await input.press('Enter');
 

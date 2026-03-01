@@ -19,15 +19,15 @@ export default function SelectInput({
   options,
 }: SelectInputProps) {
   return (
-    <div className="flex flex-col gap-[6px]">
-      <label className="text-[13px] font-medium text-[var(--ws-text-secondary)]">
+    <div className="flex flex-col gap-2 group">
+      <label className="text-[13px] font-semibold tracking-wide text-[var(--ws-text-secondary)] pl-1 transition-colors group-focus-within:text-[var(--ws-text-primary)]">
         {label}
       </label>
       <div className="relative">
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full appearance-none rounded-[8px] border border-[var(--ws-border)] bg-[var(--ws-bg-primary)] px-4 py-3 pr-10 text-[15px] text-[var(--ws-text-primary)] focus:border-[var(--ws-text-primary)] focus:outline-none transition-colors cursor-pointer"
+          className="w-full appearance-none rounded-[16px] border border-transparent bg-[var(--ws-bg-primary)] shadow-[inset_0_1px_3px_rgba(0,0,0,0.15)] px-4 py-4 pr-10 text-[16px] font-medium text-[var(--ws-text-primary)] focus:bg-[var(--ws-bg-surface)] focus:border-[var(--ws-text-primary)] focus:ring-1 focus:ring-[var(--ws-text-primary)] focus:shadow-none focus:outline-none transition-all duration-200 cursor-pointer"
         >
           <option value="" disabled>
             Select...

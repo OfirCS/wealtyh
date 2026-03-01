@@ -55,15 +55,15 @@ export default function CurrencyInput({
   const displayValue = focused ? rawInput : formatCurrency(value);
 
   return (
-    <div className="flex flex-col gap-[6px]">
-      <label className="text-[13px] font-medium text-[var(--ws-text-secondary)]">
+    <div className="flex flex-col gap-2 group">
+      <label className="text-[13px] font-semibold tracking-wide text-[var(--ws-text-secondary)] pl-1 transition-colors group-focus-within:text-[var(--ws-text-primary)]">
         {label}
         {optional && (
-          <span className="ml-1 text-[var(--ws-text-tertiary)]">(optional)</span>
+          <span className="ml-1 text-[var(--ws-text-tertiary)] font-normal">(optional)</span>
         )}
       </label>
       <div className="relative">
-        <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[15px] text-[var(--ws-text-tertiary)]">
+        <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[16px] font-medium text-[var(--ws-text-primary)]">
           $
         </span>
         <input
@@ -74,7 +74,7 @@ export default function CurrencyInput({
           onFocus={handleFocus}
           onBlur={handleBlur}
           onChange={handleChange}
-          className="w-full rounded-[8px] border border-[var(--ws-border)] bg-[var(--ws-bg-primary)] py-3 pl-8 pr-4 text-right text-[15px] text-[var(--ws-text-primary)] placeholder:text-[var(--ws-text-tertiary)] focus:border-[var(--ws-text-primary)] focus:outline-none transition-colors"
+          className="w-full rounded-[16px] border border-transparent bg-[var(--ws-bg-primary)] shadow-[inset_0_1px_3px_rgba(0,0,0,0.15)] py-4 pl-9 pr-5 text-right text-[17px] font-semibold text-[var(--ws-text-primary)] placeholder:text-[var(--ws-text-tertiary)] focus:bg-[var(--ws-bg-surface)] focus:border-[var(--ws-text-primary)] focus:ring-1 focus:ring-[var(--ws-text-primary)] focus:shadow-none focus:outline-none transition-all duration-200"
         />
       </div>
     </div>

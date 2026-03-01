@@ -1,7 +1,65 @@
 import { GoogleGenAI } from '@google/genai';
-import { PATHFINDER_SYSTEM_PROMPT, buildUserMessage, computeDerivedMetrics } from '@/lib/prompts';
+import Anthropic from '@anthropic-ai/sdk';
+import { buildPathfinderSystemPrompt, buildUserMessage, computeDerivedMetrics, getCanadianRuleSet } from '@/lib/prompts';
 import type { DerivedMetrics } from '@/lib/prompts';
 import type { FinancialProfile, CustomFund, PathfinderResult, SearchMetadata, SearchSource, PathfinderAPIResult, QuickAction, DebugLog, DebugLogEntry } from '@/lib/types';
+
+// ── AI Client helpers ────────────────────────────────────────────────────────
+
+/** Call Claude (primary) with automatic Gemini fallback */
+async function callAI(opts: {
+  system: string;
+  userMessage: string;
+  model: 'fast' | 'main';
+  temperature?: number;
+  maxTokens?: number;
+}): Promise<string> {
+  const { system, userMessage, model, temperature = 0.3, maxTokens = 4096 } = opts;
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  const geminiKey = process.env.GOOGLE_API_KEY;
+
+  // Try Claude first
+  if (anthropicKey) {
+    try {
+      const claude = new Anthropic({ apiKey: anthropicKey });
+      const claudeModel = model === 'fast' ? 'claude-haiku-4-5-20251001' : 'claude-sonnet-4-6';
+      console.info(`[AI] Calling Claude ${claudeModel}...`);
+      const msg = await claude.messages.create({
+        model: claudeModel,
+        max_tokens: maxTokens,
+        system,
+        messages: [{ role: 'user', content: userMessage }],
+        temperature,
+      });
+      const text = msg.content[0]?.type === 'text' ? msg.content[0].text : '';
+      if (text) {
+        console.info(`[AI] Claude responded (${text.length} chars)`);
+        return text;
+      }
+      console.warn('[AI] Claude returned empty response, falling back to Gemini');
+    } catch (err) {
+      console.warn('[AI] Claude failed, falling back to Gemini:', err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  // Fallback: Gemini
+  if (!geminiKey) throw new Error('No AI API keys configured. Set ANTHROPIC_API_KEY or GOOGLE_API_KEY.');
+  const ai = new GoogleGenAI({ apiKey: geminiKey });
+  const geminiModel = model === 'fast' ? 'gemini-2.5-flash-lite' : 'gemini-2.5-flash';
+  console.info(`[AI] Falling back to Gemini ${geminiModel}...`);
+  const response = await ai.models.generateContent({
+    model: geminiModel,
+    contents: userMessage,
+    config: {
+      systemInstruction: system,
+      temperature,
+      maxOutputTokens: maxTokens,
+    },
+  });
+  return response.text ?? '';
+}
+
+type RuleSet = ReturnType<typeof getCanadianRuleSet>;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -22,10 +80,23 @@ export function parsePathfinderResult(rawText: string): PathfinderResult {
   let parsed;
   try {
     parsed = JSON.parse(cleaned);
-  } catch (e) {
-    console.error('JSON Parse Error:', e);
-    console.error('Raw content:', rawText.slice(0, 500));
-    throw new Error('Failed to parse AI response as JSON');
+  } catch {
+    // Fallback: extract first complete JSON object from the text
+    const startIdx = cleaned.indexOf('{');
+    const lastIdx = cleaned.lastIndexOf('}');
+    if (startIdx !== -1 && lastIdx > startIdx) {
+      try {
+        parsed = JSON.parse(cleaned.slice(startIdx, lastIdx + 1));
+      } catch (e2) {
+        console.error('JSON Parse Error (fallback):', e2);
+        console.error('Raw content:', rawText.slice(0, 500));
+        throw new Error('Failed to parse AI response as JSON');
+      }
+    } else {
+      console.error('No JSON object found in response');
+      console.error('Raw content:', rawText.slice(0, 500));
+      throw new Error('Failed to parse AI response as JSON');
+    }
   }
 
   const requiredKeys: (keyof PathfinderResult)[] = [
@@ -46,21 +117,109 @@ export function parsePathfinderResult(rawText: string): PathfinderResult {
   return parsed as PathfinderResult;
 }
 
+// ── Thinking Steps Relevance Filter ─────────────────────────────────────────
+
+const GENERIC_THINKING_PATTERNS = [
+  /cash\s*flow/i,
+  /^(critical|current|overall|immediate|urgent)\b/i,
+  /liquid\s*(position|assets)/i,
+  /financial\s*(health|position|snapshot|overview|summary|status|reality)/i,
+  /net\s*worth/i,
+  /balance\s*(check|overview|summary)/i,
+  /income\s*(vs|versus|analysis|check|overview|gap)/i,
+  /expense\s*(analysis|check|overview|breakdown)/i,
+  /spending\s*(analysis|overview|check)/i,
+  /budget\s*(analysis|overview|check|gap)/i,
+  /emergency\s*(fund|buffer|reserve|savings)/i,
+  /action\s*required/i,
+  /debt.*sustain/i,
+  /housing.*sustain/i,
+];
+
+function filterThinkingSteps(steps: ThinkingStep[], lifeEvent: string): ThinkingStep[] {
+  const eventLower = lifeEvent.toLowerCase();
+
+  // Detect intent: is the user abandoning a goal?
+  // Include common typos: "dont" for "done", "im" for "I'm"
+  const isAbandoning = /\b(don[e']?t? with|done with|giving up|gave up|cancel|forget|stop trying|quit|not anymore|changed my mind|don'?t want|no longer|over it|moving on|leaving|abandon|scrap|ditch|drop)\b/i.test(eventLower);
+  const abandonedTopics: string[] = [];
+  if (isAbandoning) {
+    if (/house|home|condo|buy|first.?time|fhsa|down.?payment|mortgage/i.test(eventLower)) abandonedTopics.push('home', 'house', 'mortgage', 'down payment', 'fhsa', 'buyer', 'hbp', 'first-time', 'first time', 'home purchase', 'home buying', 'feasib', 'rent vs buy');
+    if (/business|startup|freelance|entrepreneur/i.test(eventLower)) abandonedTopics.push('business', 'startup', 'runway', 'incorporation');
+    if (/baby|child|parent/i.test(eventLower)) abandonedTopics.push('baby', 'parental', 'resp', 'childcare');
+  }
+
+  const notAbandoned = (topic: string) => !abandonedTopics.includes(topic);
+  const eventIsAboutBudget = /budget|spend|save more|cut (expenses|costs)|reduce spending/i.test(eventLower);
+  const eventIsAboutHome = notAbandoned('home') && /home|house|condo|buy.*first|first.?time.?buy|fhsa|down\s*payment|mortgage/i.test(eventLower);
+  const eventIsAboutDebt = /debt|credit\s*card|pay\s*off|interest/i.test(eventLower);
+  const eventIsAboutEmergency = /emergency|rainy\s*day|safety\s*net/i.test(eventLower);
+
+  // Build pursued event topics
+  const eventTopics: string[] = [];
+  if (/baby|child|kid|parent|pregnan|mat(ernity|leave)|pat(ernity|leave)|newborn/i.test(eventLower) && notAbandoned('baby')) eventTopics.push('baby', 'parental', 'resp', 'leave', 'childcare', 'ei ', 'nursery', 'diaper');
+  if (eventIsAboutHome) eventTopics.push('home', 'house', 'mortgage', 'down payment', 'fhsa', 'buyer', 'hbp');
+  if (/business|startup|freelance|entrepreneur|self.?employ|quit.*(job|work)|career\s*change/i.test(eventLower) && notAbandoned('business')) eventTopics.push('business', 'startup', 'runway', 'revenue', 'incorporation', 'freelance');
+  if (/retire|retirement/i.test(eventLower)) eventTopics.push('retire', 'rrsp', 'pension', 'cpp');
+  if (/travel|sabbatical|gap\s*year/i.test(eventLower)) eventTopics.push('travel', 'relocat', 'cost of living');
+  if (eventIsAboutDebt) eventTopics.push('debt', 'credit', 'interest', 'pay off');
+  if (/invest|tfsa|rrsp|portfolio|stock|etf/i.test(eventLower)) eventTopics.push('invest', 'tfsa', 'rrsp', 'portfolio', 'growth');
+  if (/wedding|married|marriage/i.test(eventLower)) eventTopics.push('wedding', 'marriage', 'partner');
+  if (/move.*(to|from|everything)|transfer|consolidat/i.test(eventLower)) eventTopics.push('transfer', 'move', 'consolidat', 'withdraw', 'realloc');
+
+  let filtered = steps.filter((step) => {
+    const titleLower = step.title.toLowerCase();
+    const allText = (step.title + ' ' + step.insights.map(i => i.text).join(' ')).toLowerCase();
+
+    // Remove steps about abandoned topics (except exit strategy steps)
+    if (abandonedTopics.length > 0) {
+      const isAboutAbandoned = abandonedTopics.some((t) => titleLower.includes(t));
+      if (isAboutAbandoned) {
+        const isExitStrategy = /withdraw|tax|penalt|forfeit|close|liquidat|repurpos|move out|cash out/i.test(allText);
+        if (!isExitStrategy) {
+          console.warn(`[ThinkingFilter] Removed abandoned-goal step: "${step.title}"`);
+          return false;
+        }
+      }
+    }
+
+    // Keep steps that match pursued event topics
+    if (eventTopics.some((t) => titleLower.includes(t))) return true;
+    const insightMatchesEvent = eventTopics.some((t) => allText.includes(t));
+
+    // Remove generic audit steps
+    const isGeneric = GENERIC_THINKING_PATTERNS.some((p) => p.test(titleLower));
+    if (isGeneric && !insightMatchesEvent) {
+      console.warn(`[ThinkingFilter] Removed generic step: "${step.title}"`);
+      return false;
+    }
+
+    // Remove home-buying steps if event isn't about home
+    if (!eventIsAboutHome && (titleLower.includes('first-time') || titleLower.includes('first time') || titleLower.includes('buyer') || titleLower.includes('fhsa') || titleLower.includes('rent vs buy'))) {
+      console.warn(`[ThinkingFilter] Removed irrelevant home step: "${step.title}"`);
+      return false;
+    }
+
+    // Remove debt/emergency steps if irrelevant
+    if (!eventIsAboutDebt && !eventIsAboutBudget && /^debt/i.test(titleLower)) return false;
+    if (!eventIsAboutEmergency && !eventIsAboutBudget && /emergency/i.test(titleLower) && !insightMatchesEvent) return false;
+
+    return true;
+  });
+
+  // Ensure at least 1 step
+  if (filtered.length === 0) {
+    filtered = [{ title: 'Analyzing Impact', insights: [{ text: `Evaluating impact of this change`, type: 'neutral' }] }];
+  }
+
+  return filtered;
+}
+
 // ── Post-Parse Guardrails ───────────────────────────────────────────────────
 
 /** Normalise account name for matching */
 function normAccount(name: string): string {
   return name.toLowerCase().replace(/[^a-z]/g, '');
-}
-
-/** Room available to deposit into a registered account */
-function roomFor(account: string, profile: FinancialProfile, metrics: DerivedMetrics): number | null {
-  const norm = normAccount(account);
-  if (norm === 'tfsa') return profile.tfsaRoom;
-  if (norm === 'rrsp') return profile.rrspRoom;
-  if (norm === 'fhsa') return metrics.isFirstTimeBuyer ? Math.max(0, 8000 - profile.fhsaBalance) : 0;
-  if (norm === 'resp') return 2500;
-  return null; // non-registered or custom fund — no room cap
 }
 
 /** Strip leaked prompt internals from derived_from text */
@@ -94,32 +253,96 @@ function buildBalanceLedger(
   return ledger;
 }
 
-function buildRoomLedger(profile: FinancialProfile, metrics: DerivedMetrics): Map<string, number> {
+function buildRoomLedger(
+  profile: FinancialProfile,
+  metrics: DerivedMetrics,
+  rules: RuleSet,
+): Map<string, number> {
   const ledger = new Map<string, number>();
   ledger.set('tfsa', profile.tfsaRoom);
   ledger.set('rrsp', profile.rrspRoom);
-  ledger.set('fhsa', metrics.isFirstTimeBuyer ? Math.max(0, 8000 - profile.fhsaBalance) : 0);
-  ledger.set('resp', 2500);
+  ledger.set('fhsa', metrics.isFirstTimeBuyer ? Math.max(0, rules.fhsaAnnualRoom - profile.fhsaBalance) : 0);
+  ledger.set('resp', rules.respAnnualContributionForMaxCesg);
   return ledger;
 }
 
-function applyPostParseGuardrails(
+function resolveLedgerKey(name: string, ledger: Map<string, number>): string | null {
+  const requested = normAccount(name);
+  if (!requested) return null;
+  if (ledger.has(requested)) return requested;
+
+  const partialMatches = Array.from(ledger.keys()).filter(
+    (key) => key.includes(requested) || requested.includes(key),
+  );
+  if (partialMatches.length === 1) return partialMatches[0];
+  if (partialMatches.length > 1) {
+    return partialMatches.sort(
+      (a, b) => Math.abs(a.length - requested.length) - Math.abs(b.length - requested.length),
+    )[0];
+  }
+
+  const tokens = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(/\s+/)
+    .filter((token) => token.length >= 3);
+
+  if (tokens.length > 0) {
+    const tokenMatches = Array.from(ledger.keys())
+      .map((key) => ({
+        key,
+        overlap: tokens.filter((token) => key.includes(token)).length,
+        lengthDelta: Math.abs(key.length - requested.length),
+      }))
+      .filter((candidate) => candidate.overlap > 0)
+      .sort((a, b) => {
+        if (b.overlap !== a.overlap) return b.overlap - a.overlap;
+        return a.lengthDelta - b.lengthDelta;
+      });
+
+    if (tokenMatches.length === 1) return tokenMatches[0].key;
+    if (tokenMatches.length > 1 && tokenMatches[0].overlap > tokenMatches[1].overlap) {
+      return tokenMatches[0].key;
+    }
+  }
+
+  return null;
+}
+
+export function applyPostParseGuardrails(
   result: PathfinderResult,
   profile: FinancialProfile,
   customFunds: CustomFund[],
   lifeEvent: string,
+  rules: RuleSet,
   removedActions: string[] = [],
 ): PathfinderResult {
   const metrics = computeDerivedMetrics(profile, customFunds);
   const balanceLedger = buildBalanceLedger(profile, customFunds);
-  const roomLedger = buildRoomLedger(profile, metrics);
+  const roomLedger = buildRoomLedger(profile, metrics, rules);
+  const displayNameByNorm = new Map<string, string>([
+    ['chequing', 'Chequing'],
+    ['savings', 'Savings'],
+    ['tfsa', 'TFSA'],
+    ['rrsp', 'RRSP'],
+    ['fhsa', 'FHSA'],
+    ['nonregistered', 'Non-Registered'],
+  ]);
+  for (const fund of customFunds) {
+    displayNameByNorm.set(normAccount(fund.name), fund.name);
+  }
 
   const validated: QuickAction[] = [];
+  const splitActions: QuickAction[] = [];
 
   for (const action of result.quick_actions) {
-    let keep = true;
-    const sourceKey = action.from_account ? normAccount(action.from_account) : null;
+    const sourceKey = action.from_account ? resolveLedgerKey(action.from_account, balanceLedger) : null;
     const destKey = action.to_account ? normAccount(action.to_account) : null;
+
+    if (sourceKey && action.from_account) {
+      const canonicalSource = displayNameByNorm.get(sourceKey);
+      if (canonicalSource) action.from_account = canonicalSource;
+    }
 
     // ── FHSA eligibility ──
     if (destKey === 'fhsa' && !metrics.isFirstTimeBuyer) {
@@ -154,23 +377,45 @@ function applyPostParseGuardrails(
     }
 
     // ── Source balance check (against running ledger) ──
-    if (sourceKey && action.amount && action.amount > 0) {
-      const available = balanceLedger.get(sourceKey);
-      if (available !== undefined) {
-        if (available <= 0) {
-          removedActions.push(`"${action.title}" — ${action.from_account} has $0 left`);
-          continue;
-        }
-        if (action.amount > available) {
-          console.warn(`[Guardrail] Capped "${action.title}": $${action.amount} → $${available} (remaining in ${action.from_account})`);
-          action.amount = available;
-          action.title = action.title.replace(/\$[\d,.]+/, `$${available.toLocaleString('en-CA')}`);
-        }
-      } else {
+    if (action.from_account && action.amount && action.amount > 0) {
+      if (!sourceKey) {
         // Source account not found in ledger — AI hallucinated or misspelled the account name
         console.warn(`[Guardrail] Removed "${action.title}" — source "${action.from_account}" not found in any account`);
         removedActions.push(`"${action.title}" — unknown source account "${action.from_account}"`);
         continue;
+      }
+
+      const available = balanceLedger.get(sourceKey) ?? 0;
+      if (available <= 0) {
+        removedActions.push(`"${action.title}" — ${action.from_account} has $0 left`);
+        continue;
+      }
+      if (action.amount > available) {
+        const shortfall = action.amount - available;
+        console.warn(`[Guardrail] Capped "${action.title}": $${action.amount} → $${available} (remaining in ${action.from_account})`);
+        action.amount = available;
+        action.title = action.title.replace(/\$[\d,.]+/, `$${available.toLocaleString('en-CA')}`);
+
+        // Smart split: create automation for the shortfall if user has surplus
+        if (action.type === 'move' && metrics.monthlySurplus > 200) {
+          const monthlyAmt = Math.min(
+            Math.round(shortfall / 6),
+            Math.round(metrics.monthlySurplus * 0.5),
+          );
+          if (monthlyAmt > 0) {
+            const months = Math.ceil(shortfall / monthlyAmt);
+            splitActions.push({
+              title: `Auto-deposit $${monthlyAmt.toLocaleString('en-CA')}/mo → ${action.to_account}`,
+              why: `Builds remaining $${shortfall.toLocaleString('en-CA')} over ${months}mo`,
+              derived_from: `$${shortfall.toLocaleString('en-CA')} shortfall ÷ $${monthlyAmt}/mo = ${months}mo`,
+              type: 'automate',
+              from_account: action.from_account,
+              to_account: action.to_account,
+              automation: { amount: monthlyAmt, frequency: 'monthly', duration_months: months, target_amount: shortfall },
+              priority: 'this_month',
+            });
+          }
+        }
       }
     }
 
@@ -221,7 +466,7 @@ function applyPostParseGuardrails(
     validated.push(action);
   }
 
-  result.quick_actions = validated;
+  result.quick_actions = [...validated, ...splitActions];
 
   // ── Deduplicate moves: only merge if SAME source AND SAME destination ──
   const seenKey = new Map<string, number>();
@@ -331,7 +576,13 @@ function applyPostParseGuardrails(
     } else if (norm === 'rrsp') {
       projected = Math.min(projected, profile.rrspBalance + profile.rrspRoom);
     } else if (norm === 'fhsa') {
-      projected = Math.min(projected, Math.min(40000, profile.fhsaBalance + Math.max(0, 8000 - profile.fhsaBalance)));
+      projected = Math.min(
+        projected,
+        Math.min(
+          rules.fhsaLifetimeRoom,
+          profile.fhsaBalance + Math.max(0, rules.fhsaAnnualRoom - profile.fhsaBalance),
+        ),
+      );
     }
     // Credit card can't go below 0
     if (norm === 'creditcard') {
@@ -386,30 +637,33 @@ function applyPostParseGuardrails(
   }
 
   if (result.monthly_cashflow && result.monthly_cashflow.length > 0) {
-    // Coerce all amounts to numbers
-    for (const entry of result.monthly_cashflow) {
+    // Coerce all amounts to numbers and track original AI predictions
+    const originalAiAmounts = result.monthly_cashflow.map(entry => {
+      let val = 0;
       if (typeof entry.amount === 'string') {
         const stripped = (entry.amount as string).replace(/[^0-9.\-]/g, '');
-        entry.amount = Number(stripped) || 0;
+        val = Number(stripped) || 0;
       } else {
-        entry.amount = Number(entry.amount) || 0;
+        val = Number(entry.amount) || 0;
       }
-    }
+      entry.amount = val;
+      return val;
+    });
 
-    // Fix first phase to actual surplus
-    const first = result.monthly_cashflow[0];
-    if (first.amount !== actualSurplus) {
-      console.warn(`[Guardrail] Fixed cashflow "${first.phase}": AI said $${first.amount}, actual surplus $${actualSurplus}`);
-      first.amount = actualSurplus;
-    }
+    const aiPhase1 = originalAiAmounts[0] || 0;
 
-    // Fix second phase if it exists — anchor to surplus minus automations
-    if (result.monthly_cashflow.length >= 2 && totalMonthlyAutomation > 0) {
-      const second = result.monthly_cashflow[1];
-      const adjustedSurplus = actualSurplus - totalMonthlyAutomation;
-      if (second.amount !== adjustedSurplus) {
-        console.warn(`[Guardrail] Fixed cashflow "${second.phase}": AI said $${second.amount}, adjusted to $${adjustedSurplus} (surplus $${actualSurplus} - automations $${totalMonthlyAutomation})`);
-        second.amount = adjustedSurplus;
+    // Fix first phase strictly to actual surplus
+    result.monthly_cashflow[0].amount = actualSurplus;
+
+    // Scale subsequent phases based on the AI's relative predicted drop/gain
+    for (let i = 1; i < result.monthly_cashflow.length; i++) {
+      // If this is phase 2 AND there is an automation, enforce actualSurplus - automations mathematically
+      if (i === 1 && totalMonthlyAutomation > 0) {
+        result.monthly_cashflow[i].amount = actualSurplus - totalMonthlyAutomation;
+      } else {
+        // Otherwise, preserve the AI's intuition (e.g. mortgage costs, income drops) by applying the relative delta to the real surplus
+        const aiRelativeDelta = originalAiAmounts[i] - aiPhase1;
+        result.monthly_cashflow[i].amount = actualSurplus + aiRelativeDelta;
       }
     }
   } else {
@@ -423,6 +677,31 @@ function applyPostParseGuardrails(
     result.monthly_cashflow = phases;
   }
 
+  // ── Tie Net Worth Summary to REAL Action Value ──
+  // To avoid confusing hallucinations, "Plan Value" will directly equal the sum of actions being executed 
+  let totalActionValue = 0;
+  for (const action of result.quick_actions) {
+    if (action.amount && action.amount > 0 && action.type !== 'automate') {
+      totalActionValue += action.amount;
+    }
+    // Also add the first year of automations
+    if (action.type === 'automate' && action.automation && action.automation.amount > 0) {
+      const months = action.automation.duration_months || 12;
+      totalActionValue += (action.automation.amount * Math.min(12, months));
+    }
+  }
+
+  if (result.impact_summary && result.impact_summary.net_worth_change) {
+    result.impact_summary.net_worth_change.value = `+$${totalActionValue.toLocaleString('en-CA')}`;
+    result.impact_summary.net_worth_change.type = 'positive';
+    result.impact_summary.net_worth_change.label = 'Value directed';
+  }
+
+  // ── Filter thinking_steps for relevance to the life event ──
+  if (result.thinking_steps && result.thinking_steps.length > 0) {
+    result.thinking_steps = filterThinkingSteps(result.thinking_steps, lifeEvent);
+  }
+
   return result;
 }
 
@@ -433,9 +712,18 @@ function buildRouterPrompt(
   customFunds: CustomFund[],
 ): string {
   const m = computeDerivedMetrics(profile, customFunds);
+  const rules = getCanadianRuleSet();
   const customFundNames = customFunds.map(f => f.name).join(', ') || 'none';
 
   return `You are a financial planning router. You receive a user's full financial context and a life event. Decide whether CURRENT internet data would materially change the recommended dollar amounts or strategy.
+
+## CRITICAL: Understand Intent Before Searching
+Read the life event CAREFULLY. Detect whether the user is:
+- **PURSUING** a goal → search for info about that goal
+- **ABANDONING/PIVOTING** a goal → DO NOT search for the old goal. The user is DONE with it.
+  - Signals: "done with", "giving up", "cancel", "forget about", "not anymore", "changed my mind", "switch from", "stop trying to"
+  - Example: "I'm done with buying a house, move everything to chequing" → The user is NOT buying a house. Do NOT search for mortgage rates or home prices. The action is a simple fund reallocation — no search needed.
+  - Example: "forget the business, I want to travel instead" → Search for TRAVEL costs, not business costs.
 
 ## Principle
 Ask yourself: "Would last year's numbers give wrong advice?" If yes → search.
@@ -452,10 +740,12 @@ SEARCH when the plan depends on:
 
 DO NOT SEARCH for:
 - Tax bracket math (stable, already in system prompt)
-- TFSA/RRSP/FHSA/RESP rules and limits (already in system prompt for 2026)
+- TFSA/RRSP/FHSA/RESP rules and limits (already in system prompt for ${rules.year})
 - Standard EI/CCB formulas (already in system prompt)
 - General budgeting or savings rate calculations
 - The user's own numbers (already provided)
+- Goals the user is ABANDONING (see intent detection above)
+- Simple fund moves/transfers between the user's own accounts
 
 When in doubt: search. Cost is 1-2s latency; stale data leads to wrong dollar amounts.
 
@@ -484,26 +774,22 @@ export interface RouterResult {
 }
 
 export async function routeQuery(
-  ai: GoogleGenAI,
   profile: FinancialProfile,
   lifeEvent: string,
   customFunds: CustomFund[],
 ): Promise<RouterResult> {
   const routerPrompt = buildRouterPrompt(profile, customFunds);
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-lite',
-    contents: `LIFE_EVENT: ${lifeEvent}`,
-    config: {
-      systemInstruction: routerPrompt,
-      temperature: 0,
-      maxOutputTokens: 256,
-    },
+  const text = await callAI({
+    system: routerPrompt,
+    userMessage: `LIFE_EVENT: ${lifeEvent}`,
+    model: 'fast',
+    temperature: 0,
+    maxTokens: 256,
   });
 
-  const text = response.text?.trim() ?? '';
   try {
-    const cleaned = stripMarkdownFences(text);
+    const cleaned = stripMarkdownFences(text.trim());
     const parsed = JSON.parse(cleaned);
     if (parsed.reasoning) {
       console.info('[Router] Reasoning:', parsed.reasoning);
@@ -525,10 +811,13 @@ export interface SearchResult {
   metadata: SearchMetadata;
 }
 
+/** Search always uses Gemini (for Google grounding / web search tool) */
 export async function searchForContext(
-  ai: GoogleGenAI,
   queries: string[],
 ): Promise<SearchResult> {
+  const geminiKey = process.env.GOOGLE_API_KEY;
+  if (!geminiKey) throw new Error('GOOGLE_API_KEY required for web search');
+  const ai = new GoogleGenAI({ apiKey: geminiKey });
   const combined = queries.join('\n- ');
   const prompt = `Research the following topics and provide a concise factual summary for each. Include specific numbers, dates, and sources where possible. Keep each topic to 2-3 sentences.
 
@@ -577,22 +866,59 @@ Topics:
 
 import type { ThinkingStep } from '@/lib/types';
 
-const THINKING_PREVIEW_PROMPT = `You are a financial analyst. Analyze the user's financial snapshot and life event. Output ONLY a JSON array of thinking_steps showing your reasoning.
+const THINKING_PREVIEW_PROMPT = `You are a financial analyst. The user has a specific LIFE EVENT. Analyze ONLY how that life event interacts with their finances. Output a JSON array of thinking_steps.
 
 Each step has:
-- "title": 3-5 word label (e.g. "Emergency Fund Check", "Income Impact Analysis")
+- "title": 3-5 word label directly referencing the life event
 - "insights": array of {"text": "ONE punchy line with exact $ amounts", "type": "positive|negative|neutral"}
 
-Rules:
-- 4-6 steps. For multi-scenario events, one step per sub-situation + a synthesis step.
-- Reference EXACT dollar amounts from the user's data.
-- Be specific and concise. No filler.
+## STEP 0: DETECT INTENT (do this FIRST)
+Read the life event carefully. Is the user:
+- **PURSUING** something new → analyze the NEW goal
+- **ABANDONING/PIVOTING** away from something → analyze the PIVOT, NOT the old goal
+  - "done with buying a house" → user is LEAVING home buying. Analyze: where does FHSA money go? Tax implications of withdrawal. NOT: down payment gaps, mortgage rates.
+  - "forget the business, I want to travel" → analyze TRAVEL, not business.
+  - "cancel my RESP" → analyze what happens when RESP is closed, not education planning.
+- **SIMPLE ACTION** ("move everything to chequing") → analyze the transfer impact. Don't overthink it.
+
+## THE MOST IMPORTANT RULE
+Every single step MUST be about the LIFE EVENT's ACTUAL INTENT. Ask yourself: "Would I show this step if the user had a DIFFERENT life event?" If yes → it's generic filler → DELETE IT.
+
+BAD (generic profile audit — NEVER do this):
+- "Cash Flow Analysis" — just restating income vs expenses
+- "Current Liquid Position" — just summarizing balances
+- "Emergency Buffer" — generic advice unrelated to the event
+- "First-Time Buyer Opportunity" — unless the user is PURSUING home buying (not abandoning it!)
+- "Immediate Action Required" — vague, not tied to the event
+- "Home Purchase Impossible" — when the user said they're DONE with buying a house!
+
+GOOD (life-event-focused — title names the EVENT, not the account):
+- For "start a business": "Startup Runway" → "$30K liquid = 5.8mo at $5.2K burn"
+- For "have a baby": "Parental Leave Drop" → "EI at $2,672/mo vs current $7.9K — $5.2K/mo gap"
+- For "have a baby": "RESP Free Money" → "CESG matches 20% on $2,500/yr = $500/yr free"
+- For "buy a house": "Down Payment Gap" → "Need $80K, have $45K — $35K short"
+- For "pay off debt": "Interest Cost" → "$853 at 20% = $170/yr wasted"
+
+RULES:
+- 3-4 steps. EVERY step must directly address the life event.
+- Title must reference the EVENT (e.g. "Parental Leave Drop", "Baby Budget"), NOT generic terms ("Cash Flow", "Liquid Position").
+- Only mention accounts the user ACTUALLY HAS (balance > $0 or room > $0).
+- Reference EXACT $ amounts from user data.
+- NO generic financial health summaries. The user already sees their profile — don't repeat it back.
 - Return ONLY valid JSON array. No markdown fences.
 
-Example output:
+Example — life event "having a baby":
 [
-  {"title":"Emergency Buffer","insights":[{"text":"$30K liquid covers 4.2 months of expenses","type":"positive"}]},
-  {"title":"TFSA Opportunity","insights":[{"text":"$7K room available — tax-free growth","type":"positive"},{"text":"Maxing saves ~$350/yr in tax on gains","type":"neutral"}]}
+  {"title":"Parental Leave Drop","insights":[{"text":"EI at $2,672/mo vs $7.9K — $5.2K/mo income gap","type":"negative"}]},
+  {"title":"RESP Free Money","insights":[{"text":"$2,500/yr gets $500 CESG match — start immediately","type":"positive"}]},
+  {"title":"Baby Expense Buffer","insights":[{"text":"$1,200/mo childcare + $300 supplies = $1.5K new costs","type":"negative"}]}
+]
+
+Example — life event "quit my job and start a food truck":
+[
+  {"title":"Startup Runway","insights":[{"text":"$30K liquid covers ~5.8 months at $5.2K/mo","type":"positive"}]},
+  {"title":"Income Gap","insights":[{"text":"Losing $95K salary — need revenue within 6mo","type":"negative"}]},
+  {"title":"Business Costs","insights":[{"text":"Food truck + permits typically $50-80K startup","type":"neutral"}]}
 ]`;
 
 export async function generateThinkingPreview(
@@ -600,40 +926,88 @@ export async function generateThinkingPreview(
   lifeEvent: string,
   customFunds: CustomFund[] = [],
 ): Promise<ThinkingStep[]> {
-  const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) throw new Error('GOOGLE_API_KEY is not set');
-
-  const ai = new GoogleGenAI({ apiKey });
   const userMessage = buildUserMessage(profile, lifeEvent, customFunds);
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-lite',
-    contents: userMessage,
-    config: {
-      systemInstruction: THINKING_PREVIEW_PROMPT,
-      temperature: 0.1,
-      maxOutputTokens: 2048,
-    },
+  const text = await callAI({
+    system: THINKING_PREVIEW_PROMPT,
+    userMessage,
+    model: 'fast',
+    temperature: 0.1,
+    maxTokens: 2048,
   });
-
-  const text = response.text?.trim() ?? '';
   try {
     const cleaned = stripMarkdownFences(text);
     const parsed = JSON.parse(cleaned);
+    let steps: ThinkingStep[];
     if (Array.isArray(parsed)) {
-      return parsed as ThinkingStep[];
+      steps = parsed as ThinkingStep[];
+    } else if (parsed.thinking_steps && Array.isArray(parsed.thinking_steps)) {
+      steps = parsed.thinking_steps as ThinkingStep[];
+    } else {
+      throw new Error('Unexpected format');
     }
-    // If the model wrapped it in an object
-    if (parsed.thinking_steps && Array.isArray(parsed.thinking_steps)) {
-      return parsed.thinking_steps as ThinkingStep[];
+
+    // Remove steps about accounts the user doesn't actually have
+    const emptyAccounts: string[] = [];
+    if (profile.tfsaBalance === 0 && profile.tfsaRoom === 0) emptyAccounts.push('tfsa');
+    if (profile.rrspBalance === 0 && profile.rrspRoom === 0) emptyAccounts.push('rrsp');
+    if (profile.fhsaBalance === 0) emptyAccounts.push('fhsa');
+    if (profile.nonRegBalance === 0) emptyAccounts.push('non-reg', 'non reg', 'nonreg');
+
+    if (emptyAccounts.length > 0) {
+      steps = steps.filter((step) => {
+        const combined = (step.title + ' ' + step.insights.map(i => i.text).join(' ')).toLowerCase();
+        for (const acct of emptyAccounts) {
+          if (combined.includes(acct) && !combined.includes('open') && !combined.includes('consider')) {
+            if (step.title.toLowerCase().includes(acct)) return false;
+          }
+        }
+        return true;
+      });
     }
-    throw new Error('Unexpected format');
-  } catch (err) {
+
+    // Apply shared relevance filter (handles negation, generic steps, abandoned goals)
+    steps = filterThinkingSteps(steps, lifeEvent);
+
+    return steps;
+  } catch {
     console.warn('[PreThink] Failed to parse:', text.slice(0, 300));
-    // Return a reasonable fallback
+    const monthlyIncome = Math.round((profile.annualIncome + profile.partnerIncome) / 12);
+    const monthlyCosts =
+      profile.housingExpense +
+      profile.essentialExpenses +
+      profile.discretionarySpending +
+      profile.debtPayments;
+    const monthlyDelta = monthlyIncome - monthlyCosts;
+    const liquidBalance = profile.chequingBalance + profile.savingsBalance;
+    const runwayMonths = monthlyCosts > 0 ? liquidBalance / monthlyCosts : 0;
+    const fallbackEvent = lifeEvent.trim().replace(/\s+/g, ' ').slice(0, 64);
+
+    const formatCad = (amount: number) => `$${Math.round(amount).toLocaleString('en-CA')}`;
+    const formatMonths = (months: number) => `${months.toFixed(1)} months`;
+
     return [
-      { title: 'Analyzing Finances', insights: [{ text: `Reviewing your financial snapshot`, type: 'neutral' }] },
-      { title: 'Running Scenarios', insights: [{ text: `Simulating impact of your life event`, type: 'neutral' }] },
+      {
+        title: 'Cash Flow Snapshot',
+        insights: [{
+          text: `${formatCad(monthlyIncome)}/mo income vs ${formatCad(monthlyCosts)}/mo costs (${monthlyDelta >= 0 ? '+' : '-'}${formatCad(Math.abs(monthlyDelta))}/mo)`,
+          type: monthlyDelta >= 0 ? 'positive' : 'negative',
+        }],
+      },
+      {
+        title: 'Liquidity Runway',
+        insights: [{
+          text: `${formatCad(liquidBalance)} liquid cash covers about ${formatMonths(runwayMonths)}`,
+          type: runwayMonths >= 3 ? 'positive' : runwayMonths >= 1 ? 'neutral' : 'negative',
+        }],
+      },
+      {
+        title: 'Event Focus',
+        insights: [{
+          text: fallbackEvent.length > 0 ? `Planning next moves for: ${fallbackEvent}` : 'Planning next moves for your latest life update',
+          type: 'neutral',
+        }],
+      },
     ];
   }
 }
@@ -645,15 +1019,13 @@ export async function runPathfinder(
   lifeEvent: string,
   customFunds: CustomFund[] = [],
 ): Promise<PathfinderAPIResult> {
-  const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) throw new Error('GOOGLE_API_KEY is not set. Add it to .env to enable AI.');
-
-  const ai = new GoogleGenAI({ apiKey });
+  const rules = getCanadianRuleSet();
+  const systemPrompt = buildPathfinderSystemPrompt(new Date());
   const log: DebugLogEntry[] = [];
   const removedActions: string[] = [];
 
-  // Step 1: Router
-  const route = await routeQuery(ai, profile, lifeEvent, customFunds);
+  // Step 1: Router (Claude Haiku → Gemini fallback)
+  const route = await routeQuery(profile, lifeEvent, customFunds);
   console.info('[Pipeline] Router result:', JSON.stringify(route));
   log.push({
     step: 'Router',
@@ -662,12 +1034,12 @@ export async function runPathfinder(
       : 'No search needed',
   });
 
-  // Step 2: Search if needed
+  // Step 2: Search if needed (always Gemini for Google grounding)
   let searchContext: string | null = null;
   let searchMetadata: SearchMetadata | null = null;
   if (route.needs_search && route.queries.length > 0) {
     try {
-      const searchResult = await searchForContext(ai, route.queries);
+      const searchResult = await searchForContext(route.queries);
       searchContext = searchResult.text;
       searchMetadata = searchResult.metadata;
       log.push({
@@ -682,24 +1054,21 @@ export async function runPathfinder(
     }
   }
 
-  // Step 3: Generate the plan
+  // Step 3: Generate the plan (Claude Sonnet → Gemini fallback)
   let userMessage = buildUserMessage(profile, lifeEvent, customFunds);
   if (searchContext) {
     userMessage += `\n\nRESEARCH_CONTEXT (current data from internet search — use these numbers where relevant):\n${searchContext}`;
   }
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: userMessage,
-    config: {
-      systemInstruction: PATHFINDER_SYSTEM_PROMPT,
-      temperature: 0.3,
-      maxOutputTokens: 16384,
-    },
+  const textContent = await callAI({
+    system: systemPrompt,
+    userMessage,
+    model: 'main',
+    temperature: 0.3,
+    maxTokens: 16384,
   });
 
-  const textContent = response.text ?? '';
-  if (!textContent) throw new Error('No text content in Gemini API response');
+  if (!textContent) throw new Error('No text content in AI response');
 
   const rawResult = parsePathfinderResult(textContent);
   const actionsBeforeGuardrails = rawResult.quick_actions.length;
@@ -711,7 +1080,14 @@ export async function runPathfinder(
   });
 
   // Step 4: Guardrails
-  const result = applyPostParseGuardrails(rawResult, profile, customFunds, lifeEvent, removedActions);
+  const result = applyPostParseGuardrails(
+    rawResult,
+    profile,
+    customFunds,
+    lifeEvent,
+    rules,
+    removedActions,
+  );
 
   if (removedActions.length > 0) {
     log.push({

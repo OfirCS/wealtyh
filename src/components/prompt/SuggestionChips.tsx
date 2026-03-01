@@ -8,30 +8,18 @@ interface SuggestionChipsProps {
   onSelect: (prompt: string) => void;
 }
 
-const chipColors = [
-  "rgba(100, 160, 255, 0.12)",
-  "rgba(160, 120, 255, 0.12)",
-  "rgba(80, 200, 170, 0.10)",
-  "rgba(255, 160, 100, 0.10)",
-  "rgba(200, 100, 255, 0.10)",
-  "rgba(100, 220, 200, 0.10)",
-];
-
 export default function SuggestionChips({
   chips,
   onSelect,
 }: SuggestionChipsProps) {
   return (
-    <div className="flex overflow-x-auto hide-scrollbar gap-2.5 w-full pb-1 px-1 -mx-1">
+    <div className="flex overflow-x-auto hide-scrollbar gap-2.5 w-full pb-1 -mx-1 px-1">
       {chips.map((chip, i) => (
         <motion.button
           key={chip.label}
           type="button"
           onClick={() => onSelect(chip.prompt)}
-          className="cursor-pointer whitespace-nowrap flex-shrink-0 rounded-[20px] border border-[rgba(255,255,255,0.08)] px-4 py-2.5 text-[13px] font-medium text-[#bbb] transition-colors hover:text-white hover:border-[rgba(255,255,255,0.18)]"
-          style={{
-            background: `linear-gradient(135deg, ${chipColors[i % chipColors.length]} 0%, rgba(255,255,255,0.03) 100%)`,
-          }}
+          className="cursor-pointer whitespace-nowrap flex-shrink-0 rounded-[24px] bg-[var(--ws-bg-surface)] border border-[var(--ws-border)] px-4 py-2 text-[14px] font-medium text-[var(--ws-text-secondary)] transition-all duration-300 hover:bg-[var(--ws-bg-hover)] hover:text-[var(--ws-text-primary)] hover:border-[var(--ws-text-tertiary)]"
           initial={{ opacity: 0, y: 14, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{
@@ -41,12 +29,11 @@ export default function SuggestionChips({
             delay: 0.5 + i * 0.08,
           }}
           whileHover={{
-            scale: 1.05,
-            borderColor: "rgba(255,255,255,0.2)",
+            scale: 1.03,
           }}
-          whileTap={{ scale: 0.95 }}
+          whileTap={{ scale: 0.97 }}
         >
-          <span className="mr-1.5">{chip.emoji}</span>
+          <span className="mr-1.5 opacity-80">{chip.emoji}</span>
           {chip.label}
         </motion.button>
       ))}

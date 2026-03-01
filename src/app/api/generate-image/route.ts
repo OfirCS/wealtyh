@@ -1,6 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
 
+function buildImagePrompt(lifeEvent: string): string {
+  const lower = lifeEvent.toLowerCase();
+  const isHome = /home|house|condo|mortgage|property/.test(lower);
+  const isFamily = /baby|child|parent|family|education|school/.test(lower);
+  const isBusiness = /business|startup|freelance|self-employed|company/.test(lower);
+  const isCareer = /job|career|leave|quit|income/.test(lower);
+
+  const palette = isHome
+    ? 'sand, terracotta, muted green'
+    : isFamily
+      ? 'warm cream, sage, soft coral'
+      : isBusiness
+        ? 'graphite, teal, copper'
+        : isCareer
+          ? 'forest green, charcoal, warm beige'
+          : 'sand, gold, forest green';
+
+  const motif = isHome
+    ? 'layered geometric rooftops and horizon lines'
+    : isFamily
+      ? 'interlocking circles and protective curved forms'
+      : isBusiness
+        ? 'upward modular blocks and directional pathways'
+        : isCareer
+          ? 'branching paths converging into one route'
+          : 'clean geometric pathways with calm balance';
+
+  return `Minimalist abstract illustration about "${lifeEvent}".
+Palette: ${palette}.
+Motif: ${motif}.
+No text, no logos, no people, no faces.
+Wealthsimple-like aesthetic: clean, calming, modern.
+High quality digital art, 1:1 aspect ratio.`;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { lifeEvent } = await request.json();
@@ -16,8 +51,7 @@ export async function POST(request: NextRequest) {
 
     const ai = new GoogleGenAI({ apiKey });
 
-    // Build a prompt for a warm, abstract financial illustration
-    const imagePrompt = `Minimalist, warm-toned abstract illustration representing "${lifeEvent}". Soft gradients in sand, gold, and forest green tones. Clean geometric shapes, no text, no people, no faces. Wealthsimple brand aesthetic - simple, calming, modern. High quality digital art, 1:1 aspect ratio.`;
+    const imagePrompt = buildImagePrompt(lifeEvent);
 
     const response = await ai.models.generateImages({
       model: 'imagen-3.0-generate-002',

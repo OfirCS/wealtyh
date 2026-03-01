@@ -1,6 +1,6 @@
 'use client';
 
-import { useReducer, useCallback, useRef, useEffect } from 'react';
+import { useState, useReducer, useCallback, useRef, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { AppState, AppAction, FinancialProfile, PathfinderResult, SearchMetadata, QuickAction, AppliedSummary, CustomFund, DebugLog } from '@/lib/types';
 import { DEFAULT_PROFILE } from '@/lib/defaults';
@@ -9,7 +9,9 @@ import HomeScreen from '@/components/home/HomeScreen';
 import ThinkingView from '@/components/thinking/ThinkingView';
 import PlanView from '@/components/plan/PlanView';
 import { Logo } from "@/components/ui/Logo";
+import FlowDiagram from '@/components/demo/FlowDiagram';
 
+// ... (keep reducer and initialization code exactly as is until HomeClient)
 function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
     case 'UPDATE_PROFILE':
@@ -78,19 +80,99 @@ function appReducer(state: AppState, action: AppAction): AppState {
   }
 }
 
-const initialState: AppState = { step: 'home', profile: DEFAULT_PROFILE, customFunds: [] };
+const STORAGE_KEY = 'pathfinder.home-state.v1';
+const EMPLOYMENT_TYPES = new Set<FinancialProfile['employmentType']>([
+  'employed',
+  'self_employed',
+  'freelance',
+  'unemployed',
+  'student',
+  'retired',
+]);
+const HOUSING_TYPES = new Set<FinancialProfile['housingType']>(['rent', 'own']);
 
-// Step ordering for directional transitions
-const STEP_ORDER = { home: 0, thinking: 1, plan: 2, error: 2 };
+const NUMERIC_PROFILE_FIELDS = [
+  'annualIncome',
+  'partnerIncome',
+  'chequingBalance',
+  'savingsBalance',
+  'tfsaBalance',
+  'tfsaRoom',
+  'rrspBalance',
+  'rrspRoom',
+  'fhsaBalance',
+  'nonRegBalance',
+  'housingExpense',
+  'mortgageBalance',
+  'essentialExpenses',
+  'discretionarySpending',
+  'debtPayments',
+  'creditCardBalance',
+] as const;
+
+function hydrateProfile(raw: unknown): FinancialProfile {
+  const profile: FinancialProfile = { ...DEFAULT_PROFILE };
+  if (!raw || typeof raw !== 'object') return profile;
+  const candidate = raw as Partial<FinancialProfile>;
+
+  for (const field of NUMERIC_PROFILE_FIELDS) {
+    const value = candidate[field];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      profile[field] = value;
+    }
+  }
+
+  if (typeof candidate.province === 'string' && candidate.province.length > 0) {
+    profile.province = candidate.province.toUpperCase().slice(0, 2);
+  }
+  if (typeof candidate.employmentType === 'string' && EMPLOYMENT_TYPES.has(candidate.employmentType as FinancialProfile['employmentType'])) {
+    profile.employmentType = candidate.employmentType as FinancialProfile['employmentType'];
+  }
+  if (typeof candidate.housingType === 'string' && HOUSING_TYPES.has(candidate.housingType as FinancialProfile['housingType'])) {
+    profile.housingType = candidate.housingType as FinancialProfile['housingType'];
+  }
+
+  return profile;
+}
+
+function hydrateCustomFunds(raw: unknown): CustomFund[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item): item is Partial<CustomFund> => !!item && typeof item === 'object')
+    .map((fund) => ({
+      name: typeof fund.name === 'string' ? fund.name.trim() : '',
+      balance: typeof fund.balance === 'number' && Number.isFinite(fund.balance) ? fund.balance : 0,
+      emoji: typeof fund.emoji === 'string' ? fund.emoji : undefined,
+    }))
+    .filter((fund) => fund.name.length > 0);
+}
+
+function createInitialState(): AppState {
+  const fallback: AppState = { step: 'home', profile: { ...DEFAULT_PROFILE }, customFunds: [] };
+  if (typeof window === 'undefined') return fallback;
+
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as { profile?: unknown; customFunds?: unknown };
+    return {
+      step: 'home',
+      profile: hydrateProfile(parsed.profile),
+      customFunds: hydrateCustomFunds(parsed.customFunds),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+export type PipelineStepStatus = { id: string; status: 'active' | 'complete'; label?: string; detail?: string };
 
 export default function HomeClient() {
-  const [state, dispatch] = useReducer(appReducer, initialState);
+  const [state, dispatch] = useReducer(appReducer, undefined, createInitialState);
+  const [isPromptOpen, setIsPromptOpen] = useState(false);
+  const [pipelineSteps, setPipelineSteps] = useState<Record<string, PipelineStepStatus>>({});
   const prevStepRef = useRef(state.step);
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  // Determine direction: forward (+1) or backward (-1)
-  const prevStep = prevStepRef.current;
-  const direction = STEP_ORDER[state.step] >= STEP_ORDER[prevStep] ? 1 : -1;
 
   useEffect(() => {
     prevStepRef.current = state.step;
@@ -99,6 +181,21 @@ export default function HomeClient() {
       scrollRef.current.scrollTo({ top: 0 });
     }
   }, [state.step]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          profile: state.profile,
+          customFunds: state.customFunds,
+        }),
+      );
+    } catch {
+      // Ignore storage failures (private mode/quota)
+    }
+  }, [state.profile, state.customFunds]);
 
   const handleProfileChange = useCallback((profile: FinancialProfile) => {
     dispatch({ type: 'UPDATE_PROFILE', profile });
@@ -109,7 +206,12 @@ export default function HomeClient() {
   }, []);
 
   const handleEventSubmit = useCallback((event: string) => {
+    setPipelineSteps({});
     dispatch({ type: 'SUBMIT_EVENT', event });
+  }, []);
+
+  const handlePipelineStep = useCallback((step: PipelineStepStatus) => {
+    setPipelineSteps((prev) => ({ ...prev, [step.id]: step }));
   }, []);
 
   const handleThinkingComplete = useCallback((result: PathfinderResult, searchMetadata: SearchMetadata | null, debugLog: DebugLog | null) => {
@@ -121,6 +223,7 @@ export default function HomeClient() {
   }, []);
 
   const handleReset = useCallback(() => {
+    setPipelineSteps({});
     dispatch({ type: 'RESET' });
   }, []);
 
@@ -135,166 +238,187 @@ export default function HomeClient() {
   }, [state]);
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[var(--ws-bg-dark)] sm:p-6">
-      <main className="relative w-full h-full min-h-screen sm:min-h-[850px] max-w-5xl bg-[var(--ws-bg-primary)] sm:rounded-[32px] sm:border sm:border-[var(--ws-border)] shadow-[0_24px_70px_rgba(0,0,0,0.4)] overflow-hidden flex flex-col items-center">
-        {/* Header bar */}
-        <header
-          className="absolute top-0 left-0 right-0 z-50 flex items-center justify-between px-6 pt-4 pb-3.5 bg-[var(--ws-bg-primary)]/95 backdrop-blur-md border-b border-[var(--ws-border)]"
+    <div className="h-screen w-full flex items-stretch bg-[var(--ws-bg-surface)] p-3 sm:p-4 overflow-hidden">
+      <div className="w-full h-full max-w-[1600px] mx-auto flex gap-3 sm:gap-4">
+        {/* Main App Container */}
+        <main
+          className="relative flex-1 h-full bg-[var(--ws-bg-primary)] rounded-[24px] sm:rounded-[32px] border border-[var(--ws-border)] shadow-[0_24px_70px_rgba(0,0,0,0.4)] overflow-hidden flex flex-col"
+          style={{ transform: "translateZ(0)" }}
         >
-          <div className="flex items-center gap-3">
-            <Logo />
-            <span
-              className="text-[11px] font-medium px-1.5 py-0.5 rounded-md"
-              style={{
-                backgroundColor: 'var(--ws-bg-surface)',
-                color: 'var(--ws-text-tertiary)',
-                transition: 'all 500ms ease-in-out',
-              }}
-            >
-              beta
-            </span>
-          </div>
-          {state.step !== 'home' && (
-            <button
-              onClick={handleReset}
-              className="text-[13px] font-medium transition-colors hover:opacity-70"
-              style={{ color: 'var(--ws-text-tertiary)' }}
-            >
-              Start over
-            </button>
-          )}
-        </header>
 
-        {/* Scrollable Screen content area */}
-        <div ref={scrollRef} className="w-full h-full overflow-y-auto overflow-x-hidden hide-scrollbar relative">
-          <AnimatePresence mode="wait">
-            {state.step === 'home' && (
-              <motion.div
-                key="home"
-                variants={{
-                  initial: { opacity: 0, y: 24 },
-                  animate: { opacity: 1, y: 0, transition: { type: "spring", bounce: 0, duration: 0.5 } },
-                  exit: { opacity: 0, transition: { duration: 0.15 } },
+          {/* Header bar */}
+          <header
+            className="shrink-0 z-50 flex items-center justify-between px-6 pt-4 pb-3.5 bg-[var(--ws-bg-primary)] border-b border-[var(--ws-border)] rounded-t-[24px] sm:rounded-t-[32px]"
+          >
+            <div className="flex items-center gap-3">
+              <Logo />
+              <span
+                className="text-[11px] font-medium px-1.5 py-0.5 rounded-md"
+                style={{
+                  backgroundColor: 'var(--ws-bg-surface)',
+                  color: 'var(--ws-text-tertiary)',
                 }}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                className="pt-[70px] pb-10 w-full will-change-transform"
               >
-                <HomeScreen
-                  profile={state.profile}
-                  customFunds={state.customFunds}
-                  appliedSummary={state.appliedSummary}
-                  onProfileChange={handleProfileChange}
-                  onCustomFundsChange={handleCustomFundsChange}
-                  onSubmit={handleEventSubmit}
-                />
-              </motion.div>
+                beta
+              </span>
+            </div>
+            {state.step !== 'home' && (
+              <button
+                onClick={handleReset}
+                className="text-[13px] font-medium transition-colors hover:opacity-70"
+                style={{ color: 'var(--ws-text-tertiary)' }}
+              >
+                Start over
+              </button>
             )}
+          </header>
 
-            {state.step === 'thinking' && (
-              <motion.div
-                key="thinking"
-                variants={{
-                  initial: { opacity: 0 },
-                  animate: { opacity: 1, transition: { duration: 0.3 } },
-                  exit: { opacity: 0, transition: { duration: 0.12 } },
-                }}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                className="w-full min-h-screen flex flex-col justify-center items-center p-6 pt-[70px] will-change-transform"
-              >
-                <ThinkingView
-                  profile={state.profile}
-                  customFunds={state.customFunds}
-                  event={state.event}
-                  onComplete={handleThinkingComplete}
-                  onError={handleThinkingError}
-                />
-              </motion.div>
-            )}
+          {/* Scrollable content — fills remaining height, scrolls internally */}
+          <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden hide-scrollbar">
+            <AnimatePresence mode="wait">
+              {state.step === 'home' && (
+                <motion.div
+                  key="home"
+                  variants={{
+                    initial: { opacity: 0, y: 24 },
+                    animate: { opacity: 1, y: 0, transition: { type: "spring", bounce: 0, duration: 0.5 } },
+                    exit: { opacity: 0, transition: { duration: 0.15 } },
+                  }}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                  className="pb-10 w-full will-change-transform"
+                >
+                  <HomeScreen
+                    profile={state.profile}
+                    customFunds={state.customFunds}
+                    appliedSummary={state.appliedSummary}
+                    onProfileChange={handleProfileChange}
+                    onCustomFundsChange={handleCustomFundsChange}
+                    onSubmit={handleEventSubmit}
+                    onPromptOpenChange={setIsPromptOpen}
+                  />
+                </motion.div>
+              )}
 
-            {state.step === 'plan' && (
-              <motion.div
-                key="plan"
-                variants={{
-                  initial: { opacity: 0, y: 30 },
-                  animate: { opacity: 1, y: 0, transition: { type: "spring", bounce: 0, duration: 0.5 } },
-                  exit: { opacity: 0, transition: { duration: 0.15 } },
-                }}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                className="pt-[70px] w-full will-change-transform"
-              >
-                <PlanView
-                  result={state.result}
-                  event={state.event}
-                  searchMetadata={state.searchMetadata}
-                  debugLog={state.debugLog}
-                  onReset={handleReset}
-                  onApplyActions={handleApplyActions}
-                />
-              </motion.div>
-            )}
+              {state.step === 'thinking' && (
+                <motion.div
+                  key="thinking"
+                  variants={{
+                    initial: { opacity: 0 },
+                    animate: { opacity: 1, transition: { duration: 0.3 } },
+                    exit: { opacity: 0, transition: { duration: 0.12 } },
+                  }}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                  className="w-full min-h-full flex flex-col justify-center items-center p-6 will-change-transform"
+                >
+                  <ThinkingView
+                    profile={state.profile}
+                    customFunds={state.customFunds}
+                    event={state.event}
+                    onComplete={handleThinkingComplete}
+                    onError={handleThinkingError}
+                    onPipelineStep={handlePipelineStep}
+                  />
+                </motion.div>
+              )}
 
-            {state.step === 'error' && (
-              <motion.div
-                key="error"
-                variants={{
-                  initial: { opacity: 0 },
-                  animate: { opacity: 1, transition: { duration: 0.3 } },
-                  exit: { opacity: 0, transition: { duration: 0.15 } },
-                }}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                className="pt-[70px] w-full will-change-transform"
-              >
-                <div className="mx-auto max-w-[400px] px-6 pt-20 text-center">
-                  <div
-                    className="rounded-xl p-6 mb-6"
-                    style={{
-                      backgroundColor: 'var(--ws-bg-surface)',
-                      border: '1px solid var(--ws-border)',
-                    }}
-                  >
-                    <p className="text-[18px] font-semibold mb-2" style={{ color: 'var(--ws-text-primary)' }}>
-                      Something went wrong
-                    </p>
-                    <p className="text-[14px] mb-5" style={{ color: 'var(--ws-text-secondary)' }}>
-                      {state.message}
-                    </p>
-                    <div className="flex gap-3 justify-center">
-                      <button
-                        onClick={handleRetry}
-                        className="px-5 py-2.5 rounded-full text-[14px] font-semibold cursor-pointer"
-                        style={{
-                          backgroundColor: 'var(--ws-text-primary)',
-                          color: 'var(--ws-bg-primary)',
-                        }}
-                      >
-                        Try again
-                      </button>
-                      <button
-                        onClick={handleReset}
-                        className="px-5 py-2.5 rounded-full text-[14px] font-medium cursor-pointer"
-                        style={{
-                          border: '1px solid var(--ws-border)',
-                          color: 'var(--ws-text-secondary)',
-                        }}
-                      >
-                        Go back
-                      </button>
+              {state.step === 'plan' && (
+                <motion.div
+                  key="plan"
+                  variants={{
+                    initial: { opacity: 0, y: 30 },
+                    animate: { opacity: 1, y: 0, transition: { type: "spring", bounce: 0, duration: 0.5 } },
+                    exit: { opacity: 0, transition: { duration: 0.15 } },
+                  }}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                  className="w-full will-change-transform"
+                >
+                  <PlanView
+                    result={state.result}
+                    event={state.event}
+                    profile={state.profile}
+                    customFunds={state.customFunds}
+                    searchMetadata={state.searchMetadata}
+                    debugLog={state.debugLog}
+                    onReset={handleReset}
+                    onApplyActions={handleApplyActions}
+                  />
+                </motion.div>
+              )}
+
+              {state.step === 'error' && (
+                <motion.div
+                  key="error"
+                  variants={{
+                    initial: { opacity: 0 },
+                    animate: { opacity: 1, transition: { duration: 0.3 } },
+                    exit: { opacity: 0, transition: { duration: 0.15 } },
+                  }}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                  className="w-full will-change-transform"
+                >
+                  <div className="mx-auto max-w-[400px] px-6 pt-20 text-center">
+                    <div
+                      className="rounded-xl p-6 mb-6"
+                      style={{
+                        backgroundColor: 'var(--ws-bg-surface)',
+                        border: '1px solid var(--ws-border)',
+                      }}
+                    >
+                      <p className="text-[18px] font-semibold mb-2" style={{ color: 'var(--ws-text-primary)' }}>
+                        Something went wrong
+                      </p>
+                      <p className="text-[14px] mb-5" style={{ color: 'var(--ws-text-secondary)' }}>
+                        {state.message}
+                      </p>
+                      <div className="flex gap-3 justify-center">
+                        <button
+                          onClick={handleRetry}
+                          className="px-5 py-2.5 rounded-full text-[14px] font-semibold cursor-pointer"
+                          style={{
+                            backgroundColor: 'var(--ws-text-primary)',
+                            color: 'var(--ws-bg-primary)',
+                          }}
+                        >
+                          Try again
+                        </button>
+                        <button
+                          onClick={handleReset}
+                          className="px-5 py-2.5 rounded-full text-[14px] font-medium cursor-pointer"
+                          style={{
+                            border: '1px solid var(--ws-border)',
+                            color: 'var(--ws-text-secondary)',
+                          }}
+                        >
+                          Go back
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </main>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </main>
+
+        {/* Persistent Sidebar — always visible, matches main height */}
+        <aside className="hidden md:flex flex-col w-[260px] lg:w-[320px] xl:w-[360px] shrink-0 h-full bg-[var(--ws-bg-primary)] rounded-[24px] sm:rounded-[32px] border border-[var(--ws-border)] shadow-xl overflow-hidden">
+          <FlowDiagram
+            appStep={state.step === 'error' ? 'error' : state.step}
+            isPromptOpen={isPromptOpen}
+            searchMetadata={state.step === 'plan' ? state.searchMetadata : undefined}
+            debugLog={state.step === 'plan' ? state.debugLog : undefined}
+            pipelineSteps={pipelineSteps}
+          />
+        </aside>
+      </div>
     </div>
   );
 }

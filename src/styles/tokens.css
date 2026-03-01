@@ -1,31 +1,33 @@
 :root {
   /* Colors */
-  --ws-bg-primary: #1D1D1C;
-  /* Deep charcoal */
-  --ws-bg-surface: #262625;
-  /* Slightly lighter elevated dark */
-  --ws-bg-elevated: #2D2D2C;
-  --ws-bg-dark: #121212;
-  /* Extreme dark */
-  --ws-bg-advisor: #2D2D2C;
+  --ws-bg-primary: #FFFFFF;
+  /* Clean white background */
+  --ws-bg-surface: #F8F8F8;
+  /* Slightly off-white for cards/surfaces */
+  --ws-bg-elevated: #F2F2F2;
+  --ws-bg-dark: #EAEAEA;
+  /* Lightest grey for deepest backgrounds */
+  --ws-bg-advisor: #F2F2F2;
 
-  --ws-text-primary: #FCFCFC;
-  /* Crisp off-white */
-  --ws-text-secondary: #9B9B9A;
-  /* Muted grey */
-  --ws-text-tertiary: #686664;
-  --ws-text-inverse: #1D1D1C;
-  /* Dark text for light buttons */
+  --ws-text-primary: #121212;
+  /* Near black text */
+  --ws-text-secondary: #686664;
+  /* Medium grey */
+  --ws-text-tertiary: #9B9B9A;
+  --ws-text-inverse: #FFFFFF;
+  /* Light text for dark buttons */
 
-  --ws-accent-yellow: #FCFCFC;
-  /* Using white as primary accent instead of yellow to match AI builders */
-  --ws-accent-green: #486635;
-  /* Sophisticated muted green */
-  --ws-accent-red: #A43D12;
-  /* Sophisticated terracotta red */
+  --ws-accent-yellow: #121212;
+  /* Using near black as primary accent */
+  --ws-accent-green: #2B7A42;
+  /* Brighter green for light mode */
+  --ws-accent-red: #D94343;
+  /* Brighter red for light mode */
 
-  --ws-border: #3A3938;
-  /* Subtle dark border */
+  --ws-border: #E8E8E8;
+  /* Subtle light border */
+  --ws-border-hover: #D0D0D0;
+  --ws-bg-hover: #F0F0F0;
 
   /* Spacing */
   --ws-space-xs: 4px;
