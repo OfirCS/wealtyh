@@ -7,7 +7,7 @@ export default function Footer() {
       style={{ color: 'var(--ws-text-tertiary)' }}
     >
       <span className="pointer-events-auto">
-        Pathfinder · Educational, not advice
+        Made for curious Canadians
       </span>
       <span aria-hidden>·</span>
       <a

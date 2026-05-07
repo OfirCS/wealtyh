@@ -66,13 +66,13 @@ export default function Disclaimer() {
                 className="text-[13px] font-semibold mb-0.5"
                 style={{ color: 'var(--ws-text-primary)' }}
               >
-                Educational tool, not financial advice
+                For learning, not advice
               </p>
               <p
                 className="text-[12px] leading-snug"
                 style={{ color: 'var(--ws-text-secondary)' }}
               >
-                Pathfinder uses AI + 2026 Canadian tax rules to simulate decisions. Numbers are estimates. Talk to a licensed advisor before acting.
+                Numbers are estimates. Check with a real advisor before any big move.
               </p>
             </div>
             <button

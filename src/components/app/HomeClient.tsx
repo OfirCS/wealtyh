@@ -310,15 +310,6 @@ export default function HomeClient() {
           >
             <div className="flex items-center gap-3">
               <Logo />
-              <span
-                className="text-[11px] font-medium px-1.5 py-0.5 rounded-md"
-                style={{
-                  backgroundColor: 'var(--ws-bg-surface)',
-                  color: 'var(--ws-text-tertiary)',
-                }}
-              >
-                beta
-              </span>
             </div>
             <div className="flex items-center gap-3">
               {state.step === 'plan' && (

@@ -16,8 +16,8 @@ const SPONSOR: Sponsor | null = (() => {
 
 export default function SponsorSlot() {
   const sponsor = SPONSOR ?? {
-    name: 'Sponsor this slot',
-    pitch: 'Reach Canadians making real money decisions. hello@pathfinder.fyi',
+    name: 'Your brand here',
+    pitch: 'Reach Canadians planning real money moves.',
     url: 'mailto:hello@pathfinder.fyi?subject=Sponsor%20Pathfinder',
   };
   const isPlaceholder = !SPONSOR;
