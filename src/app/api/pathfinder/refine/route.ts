@@ -5,6 +5,7 @@ import { buildPathfinderSystemPrompt, buildUserMessage } from '@/lib/prompts';
 import { parsePathfinderResult, applyPostParseGuardrails } from '@/lib/pathfinder-engine';
 import { getCanadianRuleSet } from '@/lib/prompts';
 import type { FinancialProfile, CustomFund, PathfinderResult } from '@/lib/types';
+import { checkRateLimit, rateLimitHeaders } from '@/lib/rate-limit';
 
 interface RefineRequestBody {
   profile: FinancialProfile;
@@ -13,6 +14,8 @@ interface RefineRequestBody {
   originalResult: PathfinderResult;
   adjustment: string;
 }
+
+const MAX_ADJUSTMENT_LENGTH = 280;
 
 /** Call Claude (primary) with Gemini fallback for refinement */
 async function callRefine(system: string, userMessage: string): Promise<string> {
@@ -51,6 +54,14 @@ async function callRefine(system: string, userMessage: string): Promise<string> 
 }
 
 export async function POST(request: NextRequest) {
+  const limit = checkRateLimit(request);
+  if (!limit.ok) {
+    return NextResponse.json(
+      { error: 'Rate limit exceeded', retryAfter: limit.retryAfterSeconds },
+      { status: 429, headers: rateLimitHeaders(limit) },
+    );
+  }
+
   try {
     const anthropicKey = process.env.ANTHROPIC_API_KEY;
     const geminiKey = process.env.GOOGLE_API_KEY;
@@ -58,9 +69,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No AI API keys configured' }, { status: 500 });
     }
 
-    const body: RefineRequestBody = await request.json();
+    let body: RefineRequestBody;
+    try {
+      body = await request.json() as RefineRequestBody;
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
     if (!body.profile || !body.adjustment || !body.originalResult) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
+    if (typeof body.adjustment !== 'string' || body.adjustment.length > MAX_ADJUSTMENT_LENGTH) {
+      return NextResponse.json({ error: `adjustment must be a string under ${MAX_ADJUSTMENT_LENGTH} chars` }, { status: 400 });
     }
 
     const baseSystemPrompt = buildPathfinderSystemPrompt(new Date());
@@ -91,10 +110,10 @@ Output ONLY valid JSON. No markdown fences.`;
     const parsed = parsePathfinderResult(textContent);
     const rules = getCanadianRuleSet();
     const result = applyPostParseGuardrails(parsed, body.profile, body.customFunds ?? [], body.originalEvent, rules);
-    return NextResponse.json({ result });
+    return NextResponse.json({ result }, { headers: rateLimitHeaders(limit) });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Internal server error';
     console.error('[Refine API] Error:', message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'Refinement failed. Please try again.' }, { status: 500 });
   }
 }

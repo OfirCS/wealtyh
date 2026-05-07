@@ -9,13 +9,9 @@ import {
   parsePathfinderResult,
   applyPostParseGuardrails,
 } from '@/lib/pathfinder-engine';
-import type { FinancialProfile, CustomFund, DebugLogEntry } from '@/lib/types';
-
-interface StreamRequestBody {
-  profile: FinancialProfile;
-  lifeEvent: string;
-  customFunds?: CustomFund[];
-}
+import type { DebugLogEntry } from '@/lib/types';
+import { checkRateLimit, rateLimitHeaders } from '@/lib/rate-limit';
+import { validatePathfinderInput } from '@/lib/validate-request';
 
 /** Call Claude (primary) with automatic Gemini fallback — for generation */
 async function callGenerate(system: string, userMessage: string): Promise<string> {
@@ -66,18 +62,29 @@ export async function POST(request: NextRequest) {
     return new Response(JSON.stringify({ error: 'No AI API keys configured' }), { status: 500 });
   }
 
-  let body: StreamRequestBody;
+  const limit = checkRateLimit(request);
+  if (!limit.ok) {
+    const message = limit.reason === 'global'
+      ? 'Pathfinder is over its daily AI budget. Please come back tomorrow.'
+      : 'Too many plans from your IP today. Try again in a few hours.';
+    return new Response(
+      JSON.stringify({ error: message, retryAfter: limit.retryAfterSeconds }),
+      { status: 429, headers: rateLimitHeaders(limit) },
+    );
+  }
+
+  let raw: unknown;
   try {
-    body = await request.json();
+    raw = await request.json();
   } catch {
     return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400 });
   }
 
-  if (!body.profile || !body.lifeEvent) {
-    return new Response(JSON.stringify({ error: 'Missing profile or lifeEvent' }), { status: 400 });
+  const validation = validatePathfinderInput(raw);
+  if (!validation.ok) {
+    return new Response(JSON.stringify({ error: validation.message }), { status: validation.status });
   }
-
-  const { profile, lifeEvent, customFunds = [] } = body;
+  const { profile, lifeEvent, customFunds } = validation;
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -229,6 +236,7 @@ export async function POST(request: NextRequest) {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
       'Connection': 'keep-alive',
+      ...rateLimitHeaders(limit),
     },
   });
 }

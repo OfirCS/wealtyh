@@ -1,36 +1,37 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { generateThinkingPreview } from '@/lib/pathfinder-engine';
-import type { FinancialProfile, CustomFund } from '@/lib/types';
+import { checkRateLimit, rateLimitHeaders } from '@/lib/rate-limit';
+import { validatePathfinderInput } from '@/lib/validate-request';
 
-interface ThinkRequestBody {
-  profile: FinancialProfile;
-  lifeEvent: string;
-  customFunds?: CustomFund[];
-}
-
-export async function POST(request: Request) {
-  try {
-    const body: ThinkRequestBody = await request.json();
-
-    if (!body.profile || !body.lifeEvent) {
-      return NextResponse.json(
-        { error: 'Missing required fields: profile, lifeEvent' },
-        { status: 400 },
-      );
-    }
-
-    const thinking_steps = await generateThinkingPreview(
-      body.profile,
-      body.lifeEvent,
-      body.customFunds ?? [],
+export async function POST(request: NextRequest) {
+  const limit = checkRateLimit(request);
+  if (!limit.ok) {
+    return NextResponse.json(
+      { error: 'Rate limit exceeded', retryAfter: limit.retryAfterSeconds },
+      { status: 429, headers: rateLimitHeaders(limit) },
     );
+  }
 
-    return NextResponse.json({ thinking_steps });
+  let raw: unknown;
+  try {
+    raw = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+  const validation = validatePathfinderInput(raw);
+  if (!validation.ok) {
+    return NextResponse.json({ error: validation.message }, { status: validation.status });
+  }
+
+  try {
+    const thinking_steps = await generateThinkingPreview(
+      validation.profile,
+      validation.lifeEvent,
+      validation.customFunds,
+    );
+    return NextResponse.json({ thinking_steps }, { headers: rateLimitHeaders(limit) });
   } catch (err) {
     console.error('[Think API] Error:', err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Pre-think failed' },
-      { status: 500 },
-    );
+    return NextResponse.json({ thinking_steps: [] });
   }
 }

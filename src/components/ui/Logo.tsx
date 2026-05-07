@@ -8,7 +8,7 @@ export function Logo({ className = "" }: LogoProps) {
   return (
     <div className={`flex items-center ${className}`}>
       <h1 className="font-serif text-[26px] font-bold tracking-tight text-[var(--ws-text-primary)]">
-        Wealthy
+        Pathfinder
       </h1>
     </div>
   );

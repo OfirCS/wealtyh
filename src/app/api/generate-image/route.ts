@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
+import { checkRateLimit, rateLimitHeaders } from '@/lib/rate-limit';
 
 function buildImagePrompt(lifeEvent: string): string {
   const lower = lifeEvent.toLowerCase();
@@ -32,16 +33,24 @@ function buildImagePrompt(lifeEvent: string): string {
 Palette: ${palette}.
 Motif: ${motif}.
 No text, no logos, no people, no faces.
-Wealthsimple-like aesthetic: clean, calming, modern.
+Aesthetic: clean, calming, modern, editorial.
 High quality digital art, 1:1 aspect ratio.`;
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const { lifeEvent } = await request.json();
+  const limit = checkRateLimit(request);
+  if (!limit.ok) {
+    return NextResponse.json(
+      { error: 'Rate limit exceeded' },
+      { status: 429, headers: rateLimitHeaders(limit) },
+    );
+  }
 
-    if (!lifeEvent) {
-      return NextResponse.json({ error: 'Missing lifeEvent' }, { status: 400 });
+  try {
+    const { lifeEvent } = (await request.json()) as { lifeEvent?: unknown };
+
+    if (typeof lifeEvent !== 'string' || !lifeEvent.trim() || lifeEvent.length > 280) {
+      return NextResponse.json({ error: 'Invalid lifeEvent' }, { status: 400 });
     }
 
     const apiKey = process.env.GOOGLE_API_KEY;

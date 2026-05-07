@@ -10,6 +10,10 @@ import ThinkingView from '@/components/thinking/ThinkingView';
 import PlanView from '@/components/plan/PlanView';
 import { Logo } from "@/components/ui/Logo";
 import FlowDiagram from '@/components/demo/FlowDiagram';
+import Disclaimer from '@/components/ui/Disclaimer';
+import Footer from '@/components/ui/Footer';
+import SponsorSlot from '@/components/ui/SponsorSlot';
+import { readShareStateFromUrl, writeShareStateToUrl } from '@/lib/share';
 
 // ... (keep reducer and initialization code exactly as is until HomeClient)
 function appReducer(state: AppState, action: AppAction): AppState {
@@ -171,8 +175,28 @@ export default function HomeClient() {
   const [state, dispatch] = useReducer(appReducer, undefined, createInitialState);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
   const [pipelineSteps, setPipelineSteps] = useState<Record<string, PipelineStepStatus>>({});
+  const [shareToast, setShareToast] = useState<string | null>(null);
   const prevStepRef = useRef(state.step);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const sharedHydratedRef = useRef(false);
+
+  useEffect(() => {
+    if (sharedHydratedRef.current) return;
+    sharedHydratedRef.current = true;
+    const shared = readShareStateFromUrl();
+    if (!shared) return;
+    dispatch({ type: 'UPDATE_PROFILE', profile: shared.profile });
+    dispatch({ type: 'UPDATE_CUSTOM_FUNDS', customFunds: shared.customFunds });
+    if (shared.event && shared.result) {
+      dispatch({ type: 'SUBMIT_EVENT', event: shared.event });
+      dispatch({
+        type: 'COMPLETE_THINKING',
+        result: shared.result,
+        searchMetadata: null,
+        debugLog: null,
+      });
+    }
+  }, []);
 
   useEffect(() => {
     prevStepRef.current = state.step;
@@ -237,6 +261,40 @@ export default function HomeClient() {
     }
   }, [state]);
 
+  const handleShare = useCallback(async () => {
+    if (state.step !== 'plan') return;
+    const url = writeShareStateToUrl({
+      profile: state.profile,
+      customFunds: state.customFunds,
+      event: state.event,
+      result: state.result,
+    });
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        setShareToast('Link copied');
+      } else {
+        setShareToast('Link in URL bar');
+      }
+    } catch {
+      setShareToast('Link in URL bar');
+    }
+    setTimeout(() => setShareToast(null), 2200);
+  }, [state]);
+
+  // Encode the shareable state silently into the URL whenever a plan exists,
+  // so refresh / direct sharing of the address bar both work.
+  useEffect(() => {
+    if (state.step === 'plan') {
+      writeShareStateToUrl({
+        profile: state.profile,
+        customFunds: state.customFunds,
+        event: state.event,
+        result: state.result,
+      });
+    }
+  }, [state]);
+
   return (
     <div className="h-screen w-full flex items-stretch bg-[var(--ws-bg-surface)] p-3 sm:p-4 overflow-hidden">
       <div className="w-full h-full max-w-[1600px] mx-auto flex gap-3 sm:gap-4">
@@ -262,15 +320,34 @@ export default function HomeClient() {
                 beta
               </span>
             </div>
-            {state.step !== 'home' && (
-              <button
-                onClick={handleReset}
-                className="text-[13px] font-medium transition-colors hover:opacity-70"
-                style={{ color: 'var(--ws-text-tertiary)' }}
-              >
-                Start over
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              {state.step === 'plan' && (
+                <button
+                  onClick={handleShare}
+                  className="text-[13px] font-medium transition-colors hover:opacity-70 flex items-center gap-1.5 cursor-pointer"
+                  style={{ color: 'var(--ws-text-secondary)' }}
+                  aria-label="Copy share link"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <circle cx="18" cy="5" r="3" />
+                    <circle cx="6" cy="12" r="3" />
+                    <circle cx="18" cy="19" r="3" />
+                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                    <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                  </svg>
+                  {shareToast ?? 'Share'}
+                </button>
+              )}
+              {state.step !== 'home' && (
+                <button
+                  onClick={handleReset}
+                  className="text-[13px] font-medium transition-colors hover:opacity-70 cursor-pointer"
+                  style={{ color: 'var(--ws-text-tertiary)' }}
+                >
+                  Start over
+                </button>
+              )}
+            </div>
           </header>
 
           {/* Scrollable content — fills remaining height, scrolls internally */}
@@ -410,15 +487,22 @@ export default function HomeClient() {
 
         {/* Persistent Sidebar — always visible, matches main height */}
         <aside className="hidden md:flex flex-col w-[260px] lg:w-[320px] xl:w-[360px] shrink-0 h-full bg-[var(--ws-bg-primary)] rounded-[24px] sm:rounded-[32px] border border-[var(--ws-border)] shadow-xl overflow-hidden">
-          <FlowDiagram
-            appStep={state.step === 'error' ? 'error' : state.step}
-            isPromptOpen={isPromptOpen}
-            searchMetadata={state.step === 'plan' ? state.searchMetadata : undefined}
-            debugLog={state.step === 'plan' ? state.debugLog : undefined}
-            pipelineSteps={pipelineSteps}
-          />
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <FlowDiagram
+              appStep={state.step === 'error' ? 'error' : state.step}
+              isPromptOpen={isPromptOpen}
+              searchMetadata={state.step === 'plan' ? state.searchMetadata : undefined}
+              debugLog={state.step === 'plan' ? state.debugLog : undefined}
+              pipelineSteps={pipelineSteps}
+            />
+          </div>
+          <div className="shrink-0 p-3 border-t border-[var(--ws-border)]">
+            <SponsorSlot />
+          </div>
         </aside>
       </div>
+      <Disclaimer />
+      <Footer />
     </div>
   );
 }

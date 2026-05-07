@@ -15,8 +15,14 @@ const newsreader = Newsreader({
 });
 
 export const metadata: Metadata = {
-  title: "wealthy — Your Path to Financial Freedom",
-  description: "Simulate the financial impact of any life change across your entire financial picture.",
+  title: "Pathfinder — Plan any life change with AI",
+  description: "Free Canadian life-decision planner. Enter your numbers and a life event — get an AI-generated plan with TFSA / RRSP / FHSA awareness, live data, and a shareable link.",
+  metadataBase: new URL("https://pathfinder.fyi"),
+  openGraph: {
+    title: "Pathfinder — Plan any life change with AI",
+    description: "Baby? Home? Career break? See the financial impact in 30 seconds.",
+    type: "website",
+  },
 };
 
 export default function RootLayout({

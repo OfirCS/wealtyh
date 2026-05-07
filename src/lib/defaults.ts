@@ -2,8 +2,8 @@ import { computeDerivedMetrics, getCanadianRuleSet } from './prompts';
 import type { FinancialProfile, SuggestionChip, CustomFund } from './types';
 
 // ===== Default Financial Profile =====
-// Represents an existing Wealthsimple user with active accounts.
-// These values are pre-populated as if pulled from the user's real accounts.
+// Sensible starting values so first-time visitors see a realistic example
+// before they edit in their own numbers.
 
 export const DEFAULT_PROFILE: FinancialProfile = {
   annualIncome: 85000,

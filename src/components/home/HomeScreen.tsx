@@ -121,7 +121,7 @@ export default function HomeScreen({
     [p, customFunds],
   );
   const promptPlaceholder = "What's changing in your life?";
-  const pathfinderTriggerLabel = "Try Pathfinder via Wealthsimple";
+  const pathfinderTriggerLabel = "Plan a life change with AI";
 
   const totalBalance =
     (p.chequingBalance > 0 ? p.chequingBalance : 0) +

@@ -1,30 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runPathfinder } from '@/lib/pathfinder-engine';
-import type { FinancialProfile, CustomFund } from '@/lib/types';
-
-interface PathfinderRequestBody {
-  profile: FinancialProfile;
-  lifeEvent: string;
-  customFunds?: CustomFund[];
-}
+import { checkRateLimit, rateLimitHeaders } from '@/lib/rate-limit';
+import { validatePathfinderInput } from '@/lib/validate-request';
 
 export async function POST(request: NextRequest) {
+  const limit = checkRateLimit(request);
+  if (!limit.ok) {
+    return NextResponse.json(
+      { error: 'Rate limit exceeded', retryAfter: limit.retryAfterSeconds },
+      { status: 429, headers: rateLimitHeaders(limit) },
+    );
+  }
+
+  let raw: unknown;
   try {
-    const body: PathfinderRequestBody = await request.json();
+    raw = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+  const validation = validatePathfinderInput(raw);
+  if (!validation.ok) {
+    return NextResponse.json({ error: validation.message }, { status: validation.status });
+  }
 
-    if (!body.profile || !body.lifeEvent) {
-      return NextResponse.json(
-        { error: 'Missing required fields: profile and lifeEvent' },
-        { status: 400 },
-      );
-    }
-
-    const { result, searchMetadata, debugLog } = await runPathfinder(body.profile, body.lifeEvent, body.customFunds ?? []);
-    return NextResponse.json({ result, searchMetadata, debugLog });
+  try {
+    const { result, searchMetadata, debugLog } = await runPathfinder(
+      validation.profile,
+      validation.lifeEvent,
+      validation.customFunds,
+    );
+    return NextResponse.json({ result, searchMetadata, debugLog }, { headers: rateLimitHeaders(limit) });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : 'Internal server error';
+    const message = error instanceof Error ? error.message : 'Internal server error';
     console.error('[Pathfinder API] Error:', message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'Pathfinder failed to generate a plan. Please try again.' }, { status: 500 });
   }
 }

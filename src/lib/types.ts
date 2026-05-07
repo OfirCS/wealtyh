@@ -47,7 +47,7 @@ export interface ImpactSummary {
   timeline: ImpactCard;
 }
 
-// ===== Quick Actions (1-tap Wealthsimple actions) =====
+// ===== Quick Actions (1-tap recommended steps) =====
 
 export interface ActionAutomation {
   amount: number;
