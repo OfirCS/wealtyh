@@ -119,6 +119,16 @@ export default function HomeScreen({
 
   const showSummary = summaryVisible && !!appliedSummary && appliedSummary.actions.length > 0;
 
+  const hasAnyAccount =
+    p.chequingBalance > 0 ||
+    p.savingsBalance > 0 ||
+    p.tfsaBalance > 0 ||
+    p.fhsaBalance > 0 ||
+    p.rrspBalance > 0 ||
+    p.nonRegBalance > 0 ||
+    p.creditCardBalance > 0 ||
+    customFunds.length > 0;
+
   const startEdit = useCallback(() => {
     setDraft(profile);
     setIsEditing(true);
@@ -173,20 +183,22 @@ export default function HomeScreen({
             <div className="flex justify-between items-end mb-6 px-1 mt-4">
               <div className="flex flex-col">
                 <span className="text-[12px] font-medium uppercase tracking-[0.08em] text-[var(--ws-text-tertiary)] mb-1.5">
-                  Your money
+                  {hasAnyAccount ? 'Your money' : 'Welcome'}
                 </span>
                 <h2 className="text-[40px] leading-none font-serif tracking-tight text-[var(--ws-text-primary)] tabular-nums">
-                  {formatCurrency(totalBalance)}
+                  {hasAnyAccount ? formatCurrency(totalBalance) : 'Hi there'}
                 </h2>
               </div>
-              <button
-                type="button"
-                onClick={startEdit}
-                className="text-[13px] font-medium text-[var(--ws-text-secondary)] hover:text-[var(--ws-text-primary)] transition-colors cursor-pointer underline-offset-4 hover:underline"
-                aria-label="Edit accounts"
-              >
-                Edit
-              </button>
+              {hasAnyAccount && (
+                <button
+                  type="button"
+                  onClick={startEdit}
+                  className="text-[13px] font-medium text-[var(--ws-text-secondary)] hover:text-[var(--ws-text-primary)] transition-colors cursor-pointer underline-offset-4 hover:underline"
+                  aria-label="Edit accounts"
+                >
+                  Edit
+                </button>
+              )}
             </div>
 
             {/* Success Banner */}
@@ -442,6 +454,36 @@ export default function HomeScreen({
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* Empty state — no accounts yet */}
+            {!hasAnyAccount && (
+              <motion.button
+                key="empty-state"
+                type="button"
+                onClick={startEdit}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ type: "spring", bounce: 0, duration: 0.5 }}
+                className="w-full text-left rounded-[20px] border border-dashed border-[var(--ws-border-hover)] bg-[var(--ws-bg-surface)] p-5 hover:bg-[var(--ws-bg-hover)] transition-colors cursor-pointer"
+                aria-label="Add your accounts"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="text-[26px]">👋</div>
+                  <div className="flex-1">
+                    <div className="text-[15px] font-semibold text-[var(--ws-text-primary)] mb-0.5">
+                      Add your accounts
+                    </div>
+                    <div className="text-[13px] leading-relaxed text-[var(--ws-text-secondary)]">
+                      Tap to fill in chequing, savings, TFSA, RRSP — whatever you have. It stays on your device.
+                    </div>
+                  </div>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-1 text-[var(--ws-text-tertiary)]" aria-hidden>
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
+                </div>
+              </motion.button>
+            )}
 
             {/* Custom Funds (created via confirmed actions) */}
             <AnimatePresence>

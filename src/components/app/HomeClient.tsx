@@ -6,6 +6,7 @@ import type { AppState, AppAction, FinancialProfile, PathfinderResult, SearchMet
 import { DEFAULT_PROFILE } from '@/lib/defaults';
 import { applyConfirmedActions } from '@/lib/apply-actions';
 import HomeScreen from '@/components/home/HomeScreen';
+import OnboardingScreen from '@/components/onboarding/OnboardingScreen';
 import ThinkingView from '@/components/thinking/ThinkingView';
 import PlanView from '@/components/plan/PlanView';
 import { Logo } from "@/components/ui/Logo";
@@ -85,6 +86,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
 }
 
 const STORAGE_KEY = 'pathfinder.home-state.v1';
+const ONBOARDED_KEY = 'pathfinder.onboarded.v1';
 const EMPLOYMENT_TYPES = new Set<FinancialProfile['employmentType']>([
   'employed',
   'self_employed',
@@ -171,11 +173,23 @@ function createInitialState(): AppState {
 
 export type PipelineStepStatus = { id: string; status: 'active' | 'complete'; label?: string; detail?: string };
 
+function shouldShowOnboardingInitial(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    // If a shared plan is in the URL, don't interrupt with onboarding.
+    if (window.location.hash && window.location.hash.length > 1) return false;
+    return !window.localStorage.getItem(ONBOARDED_KEY);
+  } catch {
+    return true;
+  }
+}
+
 export default function HomeClient() {
   const [state, dispatch] = useReducer(appReducer, undefined, createInitialState);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
   const [pipelineSteps, setPipelineSteps] = useState<Record<string, PipelineStepStatus>>({});
   const [shareToast, setShareToast] = useState<string | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState<boolean>(shouldShowOnboardingInitial);
   const prevStepRef = useRef(state.step);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sharedHydratedRef = useRef(false);
@@ -196,6 +210,30 @@ export default function HomeClient() {
         debugLog: null,
       });
     }
+    try {
+      window.localStorage.setItem(ONBOARDED_KEY, '1');
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const finishOnboarding = useCallback((profile: FinancialProfile) => {
+    dispatch({ type: 'UPDATE_PROFILE', profile });
+    try {
+      window.localStorage.setItem(ONBOARDED_KEY, '1');
+    } catch {
+      // ignore
+    }
+    setShowOnboarding(false);
+  }, []);
+
+  const skipOnboarding = useCallback(() => {
+    try {
+      window.localStorage.setItem(ONBOARDED_KEY, '1');
+    } catch {
+      // ignore
+    }
+    setShowOnboarding(false);
   }, []);
 
   useEffect(() => {
@@ -327,6 +365,19 @@ export default function HomeClient() {
                     <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
                   </svg>
                   {shareToast ?? 'Share'}
+                </button>
+              )}
+              {state.step === 'home' && !showOnboarding && (
+                <button
+                  onClick={() => setShowOnboarding(true)}
+                  className="text-[13px] font-medium transition-colors hover:opacity-70 cursor-pointer flex items-center gap-1.5"
+                  style={{ color: 'var(--ws-text-tertiary)' }}
+                  aria-label="Run quick setup again"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M12 2L13.5 8.5L20 10L13.5 11.5L12 18L10.5 11.5L4 10L10.5 8.5L12 2Z" />
+                  </svg>
+                  Quick setup
                 </button>
               )}
               {state.step !== 'home' && (
@@ -494,6 +545,16 @@ export default function HomeClient() {
       </div>
       <Disclaimer />
       <Footer />
+      <AnimatePresence>
+        {showOnboarding && state.step === 'home' && (
+          <OnboardingScreen
+            key="onboarding"
+            initialProfile={state.profile}
+            onComplete={finishOnboarding}
+            onSkip={skipOnboarding}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

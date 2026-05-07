@@ -2,32 +2,32 @@ import { computeDerivedMetrics, getCanadianRuleSet } from './prompts';
 import type { FinancialProfile, SuggestionChip, CustomFund } from './types';
 
 // ===== Default Financial Profile =====
-// Sensible starting values so first-time visitors see a realistic example
-// before they edit in their own numbers.
+// Empty by default — the onboarding wizard fills in real numbers from the user.
+// This makes sure no visitor lands on someone else's hardcoded balances.
 
 export const DEFAULT_PROFILE: FinancialProfile = {
-  annualIncome: 85000,
+  annualIncome: 0,
   employmentType: 'employed',
-  partnerIncome: 65000,
+  partnerIncome: 0,
   province: 'ON',
 
-  chequingBalance: 12400,
-  savingsBalance: 18000,
-  tfsaBalance: 34500,
+  chequingBalance: 0,
+  savingsBalance: 0,
+  tfsaBalance: 0,
   tfsaRoom: 7000,
-  rrspBalance: 22000,
-  rrspRoom: 15200,
-  fhsaBalance: 5250,
-  nonRegBalance: 8000,
+  rrspBalance: 0,
+  rrspRoom: 0,
+  fhsaBalance: 0,
+  nonRegBalance: 0,
 
   housingType: 'rent',
-  housingExpense: 2200,
+  housingExpense: 0,
   mortgageBalance: 0,
 
-  essentialExpenses: 1800,
-  discretionarySpending: 800,
-  debtPayments: 400,
-  creditCardBalance: 853.37,
+  essentialExpenses: 0,
+  discretionarySpending: 0,
+  debtPayments: 0,
+  creditCardBalance: 0,
 };
 
 // ===== Dynamic Suggestion Chips =====
