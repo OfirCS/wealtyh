@@ -3,6 +3,8 @@
 import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { PathfinderResult, QuickAction, RiskWarning, SearchMetadata, ThinkingStep, DebugLog, FinancialProfile, CustomFund } from "@/lib/types";
+import { playSound } from "@/lib/sounds";
+import { IS_STATIC_DEMO } from "@/lib/claude";
 import ImpactSummary from "./ImpactSummary";
 import AccountImpactCards from "./AccountImpactCards";
 import CashflowCard from "./CashflowSidebar";
@@ -50,6 +52,12 @@ const PRIORITY_LABELS: Record<QuickAction["priority"], string> = {
   this_month: "This month",
   next_quarter: "Later",
 };
+
+const IMPACT_TONE_COLORS = {
+  positive: "var(--ws-accent-green)",
+  negative: "var(--ws-accent-red)",
+  neutral: "var(--ws-text-primary)",
+} as const;
 
 function ActionCard({
   action,
@@ -224,41 +232,57 @@ function AnalysisSection({ steps }: { steps: ThinkingStep[] }) {
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5, delay: 0.2 }}
     >
-      <p className="text-[11px] font-semibold text-[var(--ws-text-tertiary)] uppercase tracking-wider mb-3">
-        Reasoning
-      </p>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <p className="text-[11px] font-semibold text-[var(--ws-text-tertiary)] uppercase tracking-wider">
+          Analysis
+        </p>
+        <span className="text-[11px] font-medium text-[var(--ws-text-secondary)]">
+          {steps.length} signal{steps.length === 1 ? "" : "s"}
+        </span>
+      </div>
+      <div className="grid gap-3">
         {steps.map((step, i) => {
-          const firstInsight = step.insights?.[0];
-          const sentimentColor = firstInsight?.type === 'positive'
+          const firstInsight = step.insights?.[0] ?? { type: "neutral", text: "" };
+          const sentimentColor = firstInsight.type === 'positive'
             ? 'var(--ws-accent-green)'
-            : firstInsight?.type === 'negative'
+            : firstInsight.type === 'negative'
               ? 'var(--ws-accent-red)'
               : 'var(--ws-text-secondary)';
 
           return (
             <motion.div
               key={i}
-              className="flex items-center gap-2 px-3 py-2 rounded-full bg-[var(--ws-bg-surface)] border border-[var(--ws-border)]"
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
+              className="rounded-[18px] border p-4 bg-[var(--ws-bg-surface)]"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
               transition={{ type: "spring", bounce: 0, duration: 0.4, delay: 0.05 * i }}
             >
-              <span
-                className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                style={{ backgroundColor: sentimentColor }}
-              />
-              <span className="text-[12px] text-[var(--ws-text-secondary)] leading-none whitespace-nowrap">
-                {step.title}
-              </span>
-              {firstInsight && (
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[15px] font-semibold text-[var(--ws-text-primary)] leading-tight">
+                    {step.title}
+                  </p>
+                  <p className="mt-1 text-[12px] font-medium" style={{ color: sentimentColor }}>
+                    {firstInsight.type === "positive" ? "Opportunity" : firstInsight.type === "negative" ? "Risk" : "Context"}
+                  </p>
+                </div>
                 <span
-                  className="text-[11px] font-medium leading-none whitespace-nowrap"
-                  style={{ color: sentimentColor }}
-                >
-                  {firstInsight.text.length > 30 ? firstInsight.text.slice(0, 28) + '…' : firstInsight.text}
-                </span>
-              )}
+                  className="w-2.5 h-2.5 rounded-full flex-shrink-0 mt-1"
+                  style={{ backgroundColor: sentimentColor }}
+                />
+              </div>
+
+              <div className="mt-3 flex flex-col gap-2">
+                {(step.insights ?? []).slice(0, 2).map((insight, insightIndex) => (
+                  <p
+                    key={`${step.title}-${insightIndex}`}
+                    className="text-[13px] leading-relaxed"
+                    style={{ color: insight.type === "neutral" ? "var(--ws-text-secondary)" : IMPACT_TONE_COLORS[insight.type] }}
+                  >
+                    {insight.text}
+                  </p>
+                ))}
+              </div>
             </motion.div>
           );
         })}
@@ -572,10 +596,48 @@ export default function PlanView({ result, event, profile, customFunds, searchMe
   const [isRefining, setIsRefining] = useState(false);
   const [refinementHistory, setRefinementHistory] = useState<string[]>([]);
   const [showAnalysisDetails, setShowAnalysisDetails] = useState(false);
+  const planLead = currentResult.thinking_steps[0]?.insights?.[0]?.text ?? "Pathfinder organized your next best moves from the current snapshot.";
+  const overviewCards = [
+    {
+      label: "Net worth effect",
+      value: currentResult.impact_summary.net_worth_change.value,
+      detail: currentResult.impact_summary.net_worth_change.label,
+      tone: currentResult.impact_summary.net_worth_change.type,
+    },
+    {
+      label: "Income effect",
+      value: currentResult.impact_summary.income_change.value,
+      detail: currentResult.impact_summary.income_change.label,
+      tone: currentResult.impact_summary.income_change.type,
+    },
+    {
+      label: "Expense effect",
+      value: currentResult.impact_summary.expense_change.value,
+      detail: currentResult.impact_summary.expense_change.label,
+      tone: currentResult.impact_summary.expense_change.type,
+    },
+    {
+      label: "Timeline",
+      value: currentResult.impact_summary.timeline.value,
+      detail: `${currentResult.quick_actions.length} action${currentResult.quick_actions.length === 1 ? "" : "s"} planned`,
+      tone: "neutral" as const,
+    },
+  ];
 
   const handleRefine = useCallback(async (adjustment: string) => {
     setIsRefining(true);
     try {
+      if (IS_STATIC_DEMO) {
+        // Static showcase: re-pick a scenario using the adjustment text as the event
+        const { pickDemoScenario } = await import('@/lib/demo-data');
+        await new Promise((r) => setTimeout(r, 900));
+        const next = pickDemoScenario(`${event} — ${adjustment}`);
+        setCurrentResult(next.result);
+        setRefinementHistory((prev) => [...prev, adjustment]);
+        setConfirmedActions(new Set());
+        return;
+      }
+
       const response = await fetch('/api/pathfinder/refine', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -603,6 +665,7 @@ export default function PlanView({ result, event, profile, customFunds, searchMe
   const handleTabChange = (tab: "actions" | "impacts" | "cashflow") => {
     setTabDirection(TAB_ORDER[tab] > TAB_ORDER[activeTab] ? 1 : -1);
     setActiveTab(tab);
+    playSound('pop');
   };
 
   const handleActionConfirm = () => {
@@ -610,6 +673,7 @@ export default function PlanView({ result, event, profile, customFunds, searchMe
       const idx = currentResult.quick_actions.indexOf(selectedAction);
       if (idx !== -1) {
         setConfirmedActions((prev) => new Set(prev).add(idx));
+        playSound('success');
       }
     }
     setSelectedAction(null);
@@ -630,7 +694,7 @@ export default function PlanView({ result, event, profile, customFunds, searchMe
 
         <div className="mx-auto max-w-5xl w-full">
           {/* Sticky Header */}
-          <div className="sticky top-0 z-40 bg-[var(--ws-bg-primary)] px-4 sm:px-10 pt-3 sm:pt-4 pb-3 border-b border-[var(--ws-border)]">
+          <div className="sticky top-0 z-40 bg-[var(--ws-bg-primary)] px-4 sm:px-10 pt-3 sm:pt-4 pb-4 border-b border-[var(--ws-border)]">
             <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-3 sm:mb-4 gap-2 sm:gap-3">
               <div>
                 <p className="text-[var(--ws-text-primary)] text-[32px] sm:text-[42px] font-serif tracking-tight leading-[1] mb-0.5 sm:mb-1">
@@ -638,6 +702,9 @@ export default function PlanView({ result, event, profile, customFunds, searchMe
                 </p>
                 <p className="text-[var(--ws-text-secondary)] text-[13px] sm:text-[14px] max-w-xl leading-relaxed truncate">
                   &ldquo;{event}&rdquo;
+                </p>
+                <p className="mt-2 max-w-2xl text-[13px] sm:text-[14px] leading-relaxed text-[var(--ws-text-secondary)]">
+                  {planLead}
                 </p>
               </div>
             </div>
@@ -654,6 +721,28 @@ export default function PlanView({ result, event, profile, customFunds, searchMe
                 >
                   {tab}
                 </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 mt-4 lg:grid-cols-4">
+              {overviewCards.map((card) => (
+                <div
+                  key={card.label}
+                  className="rounded-[18px] border bg-[var(--ws-bg-surface)] px-4 py-3"
+                >
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ws-text-tertiary)]">
+                    {card.label}
+                  </p>
+                  <p
+                    className="mt-2 text-[20px] font-semibold tracking-tight"
+                    style={{ color: IMPACT_TONE_COLORS[card.tone] }}
+                  >
+                    {card.value}
+                  </p>
+                  <p className="mt-1 text-[12px] leading-relaxed text-[var(--ws-text-secondary)]">
+                    {card.detail}
+                  </p>
+                </div>
               ))}
             </div>
           </div>
@@ -685,7 +774,7 @@ export default function PlanView({ result, event, profile, customFunds, searchMe
                         <path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" stroke="currentColor" strokeWidth="1.5" />
                         <path d="M12 8v8M9 12h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                       </svg>
-                      Details
+                      Why this plan
                     </button>
                   </div>
 
@@ -769,7 +858,7 @@ export default function PlanView({ result, event, profile, customFunds, searchMe
                                   <ActionCard
                                     action={action}
                                     index={originalIndex}
-                                    onTap={() => setSelectedAction(action)}
+                                    onTap={() => { playSound('tap'); setSelectedAction(action); }}
                                   />
                                 </motion.div>
                               );
@@ -893,7 +982,7 @@ export default function PlanView({ result, event, profile, customFunds, searchMe
             <div className="pt-5 pb-5 flex flex-col items-center gap-3 border-t border-[var(--ws-border)] mt-5 w-full max-w-5xl mx-auto">
               {confirmedActions.size > 0 && (
                 <button
-                  onClick={() => onApplyActions(Array.from(confirmedActions), currentResult.quick_actions)}
+                  onClick={() => { playSound('complete'); onApplyActions(Array.from(confirmedActions), currentResult.quick_actions); }}
                   className="w-full py-3.5 rounded-full text-[15px] font-semibold cursor-pointer transition-all hover:opacity-90 active:scale-[0.98]"
                   style={{
                     backgroundColor: 'var(--ws-text-primary)',

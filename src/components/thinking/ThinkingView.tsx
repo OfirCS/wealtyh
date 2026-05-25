@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { FinancialProfile, CustomFund, PathfinderResult, SearchMetadata, DebugLog, ThinkingStep } from "@/lib/types";
-import { callPathfinderStream } from "@/lib/claude";
+import { callPathfinderStream, IS_STATIC_DEMO } from "@/lib/claude";
 import type { StreamEvent } from "@/lib/claude";
 import type { PipelineStepStatus } from "@/components/app/HomeClient";
+import { computeDerivedMetrics } from "@/lib/prompts";
+import { playSound } from "@/lib/sounds";
 import ThinkingProgress from "./ThinkingProgress";
 
 interface ThinkingViewProps {
@@ -49,6 +51,24 @@ export default function ThinkingView({
   const hasStarted = useRef(false);
   const totalStepsRef = useRef(5); // max: router, search, analyze, generate, guardrails
   const completedStepsRef = useRef(0);
+  const metrics = computeDerivedMetrics(profile, customFunds);
+  const overviewCards = [
+    {
+      label: "Liquid cash",
+      value: `$${Math.round(metrics.liquidAssets).toLocaleString("en-CA")}`,
+      detail: "available in chequing + savings",
+    },
+    {
+      label: metrics.monthlySurplus >= 0 ? "Monthly room" : "Monthly gap",
+      value: `${metrics.monthlySurplus >= 0 ? "+" : "-"}$${Math.round(Math.abs(metrics.monthlySurplus)).toLocaleString("en-CA")}`,
+      detail: "after current expenses",
+    },
+    {
+      label: "Emergency runway",
+      value: `${metrics.emergencyFundMonths.toFixed(1)} mo`,
+      detail: "current cash coverage",
+    },
+  ];
 
   const updateProgress = useCallback(() => {
     completedStepsRef.current += 1;
@@ -90,19 +110,21 @@ export default function ThinkingView({
 
     setShowProgress(true);
 
-    // Fire image generation separately
-    fetch("/api/generate-image", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lifeEvent: event }),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.imageBase64) {
-          setHeroImage(`data:image/png;base64,${data.imageBase64}`);
-        }
+    // Fire image generation separately (skipped in static-demo mode — no server)
+    if (!IS_STATIC_DEMO) {
+      fetch("/api/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lifeEvent: event }),
       })
-      .catch(() => { });
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.imageBase64) {
+            setHeroImage(`data:image/png;base64,${data.imageBase64}`);
+          }
+        })
+        .catch(() => { });
+    }
 
     // Start streaming
     let finalResult: PathfinderResult | null = null;
@@ -122,9 +144,10 @@ export default function ThinkingView({
       .then(() => {
         if (finalResult) {
           setProgress(100);
+          playSound('complete');
           setTimeout(() => {
             onComplete(finalResult!, finalSearchMeta, finalDebugLog);
-          }, 500);
+          }, 200);
         }
       })
       .catch((err) => {
@@ -133,60 +156,105 @@ export default function ThinkingView({
   }, [profile, customFunds, event, onComplete, onError, handleEvent]);
 
   return (
-    <div className="w-full max-w-[420px]">
-      {/* Hero image */}
-      <AnimatePresence>
-        {heroImage && (
-          <motion.div
-            className="w-full mb-6 flex justify-center"
-            initial={{ opacity: 0, scale: 0.95, y: 10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            transition={{ type: "spring", bounce: 0, duration: 0.8 }}
-          >
-            <div className="w-[160px] h-[160px] rounded-[24px] overflow-hidden shadow-lg border border-white/20">
-              <img src={heroImage} alt="Your financial path" className="w-full h-full object-cover" />
+    <div className="w-full max-w-[780px]">
+      <div
+        className="rounded-[32px] border p-6 sm:p-7"
+        style={{
+          borderColor: "color-mix(in oklab, var(--ws-border) 82%, #cad9ce 18%)",
+          background: "linear-gradient(180deg, #ffffff 0%, #fafbf8 52%, #f5f8f4 100%)",
+          boxShadow: "0 22px 60px rgba(18, 18, 18, 0.08)",
+        }}
+      >
+        <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex-1 min-w-0">
+            <motion.div
+              className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ws-text-tertiary)] bg-white/75"
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+            >
+              <span className="w-2 h-2 rounded-full bg-[var(--ws-accent-green)]" />
+              Pathfinder is working
+            </motion.div>
+
+            <motion.div
+              className="mt-4 flex items-center gap-3"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.3, delay: 0.1 }}
+            >
+              <div className="relative flex items-center justify-center w-6 h-6">
+                <motion.div
+                  className="absolute inset-0 rounded-full border-2 border-[var(--ws-text-primary)] border-t-transparent"
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                />
+              </div>
+              <p className="font-serif text-[30px] sm:text-[36px] font-semibold tracking-tight leading-none text-[var(--ws-text-primary)]">
+                Building your plan
+              </p>
+            </motion.div>
+
+            <motion.p
+              className="mt-3 text-[15px] sm:text-[16px] leading-relaxed text-[var(--ws-text-secondary)] max-w-[620px]"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.3, delay: 0.16 }}
+            >
+              &ldquo;{event}&rdquo;
+            </motion.p>
+
+            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {overviewCards.map((card, index) => (
+                <motion.div
+                  key={card.label}
+                  className="rounded-[18px] border px-4 py-4 bg-white/75"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.35, delay: 0.08 * index }}
+                >
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--ws-text-tertiary)]">
+                    {card.label}
+                  </p>
+                  <p className="mt-2 text-[24px] font-semibold tracking-tight text-[var(--ws-text-primary)]">
+                    {card.value}
+                  </p>
+                  <p className="mt-1 text-[12px] leading-relaxed text-[var(--ws-text-secondary)]">
+                    {card.detail}
+                  </p>
+                </motion.div>
+              ))}
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </div>
 
-      {/* User prompt */}
-      <motion.p
-        className="text-[14px] italic leading-relaxed mb-4"
-        style={{ color: "var(--ws-text-secondary)" }}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.3, delay: 0.1 }}
-      >
-        &ldquo;{event}&rdquo;
-      </motion.p>
-
-      {/* Agent headline */}
-      <motion.div
-        className="flex items-center gap-3 mb-8"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.3, delay: 0.2 }}
-      >
-        <div className="relative flex items-center justify-center w-5 h-5">
-          <motion.div
-            className="absolute inset-0 rounded-full border-2 border-[var(--ws-text-primary)] border-t-transparent"
-            animate={{ rotate: 360 }}
-            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-          />
+          <AnimatePresence>
+            {heroImage && (
+              <motion.div
+                className="w-full sm:w-[210px] shrink-0"
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                transition={{ type: "spring", bounce: 0, duration: 0.8 }}
+              >
+                <div className="w-full aspect-square rounded-[28px] overflow-hidden border border-white/80 shadow-[0_20px_40px_rgba(18,18,18,0.1)]">
+                  <img src={heroImage} alt="Your financial path" className="w-full h-full object-cover" />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
-        <p className="font-serif text-[24px] font-semibold tracking-tight leading-none" style={{ color: "var(--ws-text-primary)" }}>
-          Working on it
-        </p>
-      </motion.div>
 
-      {/* Agent steps */}
-      <div className="flex flex-col gap-0.5">
+        <div className="mt-7 flex flex-col gap-2">
         <AnimatePresence mode="sync">
           {steps.map((step, i) => (
             <motion.div
               key={step.id}
-              className="flex items-start gap-3 py-2"
+              className="flex items-start gap-3 rounded-[20px] border px-4 py-3.5"
+              style={{
+                borderColor: step.status === "active"
+                  ? "color-mix(in oklab, var(--ws-accent-green) 28%, var(--ws-border) 72%)"
+                  : "var(--ws-border)",
+                backgroundColor: step.status === "active" ? "rgba(43,122,66,0.05)" : "rgba(255,255,255,0.72)",
+              }}
               initial={{ opacity: 0, x: -12 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ type: "spring", bounce: 0, duration: 0.5, delay: 0.05 * i }}
@@ -361,21 +429,21 @@ export default function ThinkingView({
             </motion.div>
           ))}
         </AnimatePresence>
-      </div>
+        </div>
 
-      {/* Progress */}
-      <AnimatePresence>
-        {showProgress && (
-          <motion.div
-            className="mt-8"
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ type: "spring", bounce: 0, duration: 0.6 }}
-          >
-            <ThinkingProgress progress={progress} />
-          </motion.div>
-        )}
-      </AnimatePresence>
+        <AnimatePresence>
+          {showProgress && (
+            <motion.div
+              className="mt-7"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ type: "spring", bounce: 0, duration: 0.6 }}
+            >
+              <ThinkingProgress progress={progress} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }

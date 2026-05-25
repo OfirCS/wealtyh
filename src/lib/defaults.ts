@@ -11,14 +11,14 @@ export const DEFAULT_PROFILE: FinancialProfile = {
   partnerIncome: 65000,
   province: 'ON',
 
-  chequingBalance: 12400,
-  savingsBalance: 18000,
-  tfsaBalance: 34500,
-  tfsaRoom: 7000,
-  rrspBalance: 22000,
-  rrspRoom: 15200,
-  fhsaBalance: 5250,
-  nonRegBalance: 8000,
+  chequingBalance: 12000,
+  savingsBalance: 20000,
+  tfsaBalance: 32000,
+  tfsaRoom: 14000,
+  rrspBalance: 26000,
+  rrspRoom: 18000,
+  fhsaBalance: 2000,
+  nonRegBalance: 7500,
 
   housingType: 'rent',
   housingExpense: 2200,
@@ -27,7 +27,7 @@ export const DEFAULT_PROFILE: FinancialProfile = {
   essentialExpenses: 1800,
   discretionarySpending: 800,
   debtPayments: 400,
-  creditCardBalance: 853.37,
+  creditCardBalance: 3500,
 };
 
 // ===== Dynamic Suggestion Chips =====

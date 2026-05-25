@@ -27,7 +27,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
     case 'APPLY_ACTIONS': {
       const oldProfile = state.profile;
       const oldFunds = state.customFunds;
-      const { profile, customFunds } = applyConfirmedActions(
+      const { profile, customFunds, openedAccounts } = applyConfirmedActions(
         oldProfile,
         oldFunds,
         action.confirmedIndices,
@@ -65,6 +65,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         balanceChanges,
         newFundNames,
         fundChanges,
+        openedAccounts,
       };
 
       return { step: 'home', profile, customFunds, appliedSummary };
@@ -149,6 +150,7 @@ describe('appReducer', () => {
           balanceChanges: { chequingBalance: -1000 },
           newFundNames: [],
           fundChanges: {},
+          openedAccounts: [],
         },
       };
       const newProfile = { ...DEFAULT_PROFILE, annualIncome: 100000 };

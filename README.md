@@ -3,6 +3,7 @@
 A free, AI-powered Canadian life-decision planner. Type a life event (having a baby, buying a home, taking a career break) plus your real numbers, get back a concrete plan with TFSA/RRSP/FHSA awareness, live data via search grounding, and a shareable link.
 
 Live: https://pathfinder.fyi (when deployed)
+GitHub Pages showcase: https://ofircs.github.io/wealtyh/ — pre-recorded AI responses for "having a baby", "buying a home", "career break". For the real Claude+Gemini pipeline, run locally with `npm run dev`.
 
 ## What it does
 

@@ -55,6 +55,7 @@ function guessEmoji(name: string): string {
 export interface ApplyResult {
   profile: FinancialProfile;
   customFunds: CustomFund[];
+  openedAccounts: string[];
 }
 
 export function applyConfirmedActions(
@@ -66,6 +67,7 @@ export function applyConfirmedActions(
   const rules = getCanadianRuleSet();
   const p = { ...profile };
   const funds = existingFunds.map((f) => ({ ...f }));
+  const openedAccounts: string[] = [];
 
   function deduct(key: keyof FinancialProfile, amount: number) {
     (p as unknown as Record<string, number>)[key] = Math.max(0, (p[key] as number) - amount);
@@ -198,9 +200,22 @@ export function applyConfirmedActions(
         break;
       }
       case 'open_account': {
-        if (amount > 0) {
-          const movedAmount = withdrawFromSource(action.from_account, amount);
-          if (action.to_account && movedAmount > 0) creditOrCreateFund(action.to_account, movedAmount);
+        const accountName = action.to_account || action.title;
+        if (accountName) {
+          openedAccounts.push(accountName);
+          // Move money if available
+          if (amount > 0) {
+            const movedAmount = withdrawFromSource(action.from_account, amount);
+            if (movedAmount > 0) creditOrCreateFund(accountName, movedAmount);
+          }
+          // Ensure custom fund exists even with $0 deposit
+          const key = resolveAccountKey(accountName);
+          if (!key) {
+            const existing = funds.find((f) => normalizeName(f.name) === normalizeName(accountName));
+            if (!existing) {
+              funds.push({ name: accountName, balance: 0, emoji: guessEmoji(accountName) });
+            }
+          }
         }
         break;
       }
@@ -240,5 +255,5 @@ export function applyConfirmedActions(
     }
   }
 
-  return { profile: p, customFunds: funds };
+  return { profile: p, customFunds: funds, openedAccounts };
 }

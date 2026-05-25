@@ -89,8 +89,21 @@ export async function POST(request: NextRequest) {
 
   const stream = new ReadableStream({
     async start(controller) {
+      let closed = false;
+
       const send = (data: Record<string, unknown>) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        } catch {
+          closed = true;
+        }
+      };
+
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        controller.close();
       };
 
       const rules = getCanadianRuleSet();
@@ -99,9 +112,24 @@ export async function POST(request: NextRequest) {
       const removedActions: string[] = [];
 
       try {
-        // Step 1: Router (Claude Haiku → Gemini fallback)
+        // ── Fire Router + Analyze in PARALLEL (saves ~1s) ──
         send({ type: 'step', id: 'router', status: 'active', label: 'Routing' });
-        const route = await routeQuery(profile, lifeEvent, customFunds);
+        send({ type: 'step', id: 'analyze', status: 'active', label: 'Analyzing' });
+
+        const routerPromise = routeQuery(profile, lifeEvent, customFunds);
+        const preThinkPromise = generateThinkingPreview(profile, lifeEvent, customFunds)
+          .then((steps) => {
+            if (steps.length > 0) {
+              send({ type: 'thinking_steps', steps });
+            }
+            send({ type: 'step', id: 'analyze', status: 'complete', label: 'Analyzed' });
+          })
+          .catch(() => {
+            send({ type: 'step', id: 'analyze', status: 'complete', label: 'Analyzed' });
+          });
+
+        // Wait for router (analyze continues in background)
+        const route = await routerPromise;
         log.push({
           step: 'Router',
           detail: route.needs_search
@@ -118,7 +146,7 @@ export async function POST(request: NextRequest) {
             : 'No search needed',
         });
 
-        // Step 2: Search (always Gemini for Google grounding)
+        // ── Search (if needed) ──
         let searchContext: string | null = null;
         let searchMetadata = null;
         if (route.needs_search && route.queries.length > 0) {
@@ -149,28 +177,28 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Step 3: Analyze (pre-think) — runs in parallel with generate
-        send({ type: 'step', id: 'analyze', status: 'active', label: 'Analyzing' });
-        const preThinkPromise = generateThinkingPreview(profile, lifeEvent, customFunds)
-          .then((steps) => {
-            if (steps.length > 0) {
-              send({ type: 'thinking_steps', steps });
-            }
-            send({ type: 'step', id: 'analyze', status: 'complete', label: 'Analyzed' });
-          })
-          .catch(() => {
-            send({ type: 'step', id: 'analyze', status: 'complete', label: 'Analyzed' });
-          });
-
-        // Step 4: Generate plan (Claude Sonnet → Gemini fallback)
+        // ── Generate plan (with heartbeat so UI doesn't feel stuck) ──
         send({ type: 'step', id: 'generate', status: 'active', label: 'Generating' });
+
+        // Heartbeat: cycle through status messages every 2.5s during generation
+        const heartbeatLabels = ['Building plan...', 'Analyzing scenarios...', 'Optimizing actions...', 'Almost done...'];
+        let heartbeatIdx = 0;
+        const heartbeat = setInterval(() => {
+          send({ type: 'step', id: 'generate', status: 'active', label: 'Generating', detail: heartbeatLabels[heartbeatIdx % heartbeatLabels.length] });
+          heartbeatIdx++;
+        }, 2500);
 
         let userMessage = buildUserMessage(profile, lifeEvent, customFunds);
         if (searchContext) {
           userMessage += `\n\nRESEARCH_CONTEXT (current data from internet search — use these numbers where relevant):\n${searchContext}`;
         }
 
-        const textContent = await callGenerate(systemPrompt, userMessage);
+        let textContent: string;
+        try {
+          textContent = await callGenerate(systemPrompt, userMessage);
+        } finally {
+          clearInterval(heartbeat);
+        }
         if (!textContent) throw new Error('No text content in AI response');
 
         const rawResult = parsePathfinderResult(textContent);
@@ -178,11 +206,11 @@ export async function POST(request: NextRequest) {
 
         log.push({
           step: 'Generate',
-          detail: `AI produced ${actionsBeforeGuardrails} actions`,
+          detail: `Drafted ${actionsBeforeGuardrails} actions`,
           data: rawResult.quick_actions.map(a => a.title).join(' | '),
         });
 
-        // Wait for pre-think to finish
+        // Wait for pre-think to finish (likely already done by now)
         await preThinkPromise;
 
         send({
@@ -227,7 +255,7 @@ export async function POST(request: NextRequest) {
         send({ type: 'error', message });
       }
 
-      controller.close();
+      close();
     },
   });
 

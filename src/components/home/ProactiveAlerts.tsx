@@ -115,12 +115,12 @@ export default function ProactiveAlerts({ profile, customFunds, onAlertTap }: Pr
       <p className="text-[11px] font-semibold text-[var(--ws-text-tertiary)] uppercase tracking-wider mb-3 px-1">
         Pathfinder noticed
       </p>
-      <div className="flex flex-col gap-2">
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
         {alerts.map((alert, i) => (
           <motion.button
             key={alert.prompt}
             onClick={() => onAlertTap(alert.prompt)}
-            className="w-full flex items-center gap-3 px-4 py-3 bg-[var(--ws-bg-surface)] border border-[var(--ws-border)] rounded-[14px] text-left cursor-pointer hover:bg-[var(--ws-bg-primary)] transition-colors group"
+            className="w-full flex items-center gap-3 px-4 py-3 bg-[var(--ws-bg-surface)] border border-[var(--ws-border)] rounded-[14px] text-left cursor-pointer hover:bg-[var(--ws-bg-primary)] transition-colors group min-h-[64px]"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ type: "spring", bounce: 0, duration: 0.5, delay: 0.1 * i }}

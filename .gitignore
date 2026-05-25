@@ -47,3 +47,8 @@ demo-video/public/capture.webm
 
 # playwright
 test-results/
+test-transitions.ts
+transition-screenshots/
+
+# stash dir used by build:static
+/.api-stash/

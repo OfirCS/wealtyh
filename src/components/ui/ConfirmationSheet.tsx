@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { QuickAction } from "@/lib/types";
+import { playSound } from "@/lib/sounds";
 
 interface ConfirmationSheetProps {
   action: QuickAction;
@@ -37,12 +38,14 @@ export default function ConfirmationSheet({
 
   const handleConfirm = () => {
     if (isTransfer && !confirmed) {
+      playSound('tap');
       setConfirmed(true);
       return;
     }
 
     // Trigger success animation instead of closing immediately
     setIsSuccess(true);
+    playSound('success');
 
     // Auto-dismiss after providing satisfying feedback
     setTimeout(() => {

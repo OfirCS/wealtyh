@@ -1,5 +1,7 @@
 import type { FinancialProfile, CustomFund, PathfinderResult, SearchMetadata, ThinkingStep, DebugLog } from './types';
 
+export const IS_STATIC_DEMO = process.env.NEXT_PUBLIC_STATIC_DEMO === 'true';
+
 export interface PathfinderResponse {
   result: PathfinderResult;
   searchMetadata: SearchMetadata | null;
@@ -11,6 +13,12 @@ export async function callPathfinder(
   lifeEvent: string,
   customFunds: CustomFund[] = [],
 ): Promise<PathfinderResponse> {
+  if (IS_STATIC_DEMO) {
+    const { pickDemoScenario } = await import('./demo-data');
+    const s = pickDemoScenario(lifeEvent);
+    return { result: s.result, searchMetadata: s.searchMetadata, debugLog: s.debugLog };
+  }
+
   const response = await fetch('/api/pathfinder', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -35,6 +43,11 @@ export async function callPathfinderThink(
   lifeEvent: string,
   customFunds: CustomFund[] = [],
 ): Promise<ThinkingStep[]> {
+  if (IS_STATIC_DEMO) {
+    const { pickDemoScenario } = await import('./demo-data');
+    return pickDemoScenario(lifeEvent).result.thinking_steps;
+  }
+
   const response = await fetch('/api/pathfinder/think', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -85,6 +98,12 @@ export async function callPathfinderStream(
   customFunds: CustomFund[] = [],
   onEvent: (event: StreamEvent) => void,
 ): Promise<void> {
+  if (IS_STATIC_DEMO) {
+    const { runDemoStream } = await import('./demo-data');
+    await runDemoStream(lifeEvent, onEvent);
+    return;
+  }
+
   const response = await fetch('/api/pathfinder/stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

@@ -158,6 +158,7 @@ export interface AppliedSummary {
   balanceChanges: Partial<Record<string, number>>;
   newFundNames: string[];
   fundChanges: Record<string, number>;
+  openedAccounts: string[];
 }
 
 // ===== App State Machine =====

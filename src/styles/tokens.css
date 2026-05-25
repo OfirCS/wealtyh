@@ -1,33 +1,35 @@
 :root {
   /* Colors */
-  --ws-bg-primary: #FFFFFF;
-  /* Clean white background */
-  --ws-bg-surface: #F8F8F8;
-  /* Slightly off-white for cards/surfaces */
-  --ws-bg-elevated: #F2F2F2;
-  --ws-bg-dark: #EAEAEA;
-  /* Lightest grey for deepest backgrounds */
-  --ws-bg-advisor: #F2F2F2;
+  --ws-bg-primary: #F4F3EF;
+  /* Subtle sand/beige background */
+  --ws-bg-surface: #FFFFFF;
+  /* Pure white for cards */
+  --ws-bg-elevated: #F8F8F8;
+  /* Soft white for hovered or secondary surfaces */
+  --ws-bg-dark: #EAE8E1;
+  /* Muted sand for deeper backgrounds */
+  --ws-bg-advisor: #F8F8F8;
 
-  --ws-text-primary: #121212;
+  --ws-text-primary: #1A1A1A;
   /* Near black text */
-  --ws-text-secondary: #686664;
-  /* Medium grey */
-  --ws-text-tertiary: #9B9B9A;
+  --ws-text-secondary: #63615F;
+  /* Warm medium grey */
+  --ws-text-tertiary: #A19F9D;
+  /* Light warm grey */
   --ws-text-inverse: #FFFFFF;
   /* Light text for dark buttons */
 
-  --ws-accent-yellow: #121212;
+  --ws-accent-yellow: #1A1A1A;
   /* Using near black as primary accent */
-  --ws-accent-green: #2B7A42;
-  /* Brighter green for light mode */
+  --ws-accent-green: #00A368;
+  /* Wealthsimple vibrant green */
   --ws-accent-red: #D94343;
-  /* Brighter red for light mode */
+  /* Standard error red */
 
-  --ws-border: #E8E8E8;
-  /* Subtle light border */
-  --ws-border-hover: #D0D0D0;
-  --ws-bg-hover: #F0F0F0;
+  --ws-border: #E8E6DF;
+  /* Subtle warm border */
+  --ws-border-hover: #D1CFCD;
+  --ws-bg-hover: #EBEBEB;
 
   /* Spacing */
   --ws-space-xs: 4px;
@@ -38,14 +40,14 @@
   --ws-space-2xl: 64px;
 
   /* Radius */
-  --ws-radius-sm: 8px;
-  --ws-radius-md: 16px;
-  /* softer 16px cards */
-  --ws-radius-lg: 24px;
-  /* very round components */
+  --ws-radius-sm: 4px;
+  --ws-radius-md: 8px;
+  /* sharper corners for WS style */
+  --ws-radius-lg: 16px;
+  /* slightly round components */
 
-  /* Shadows */
-  --ws-shadow-sm: 0 1px 3px rgba(50, 48, 47, 0.06);
-  --ws-shadow-md: 0 4px 12px rgba(50, 48, 47, 0.08);
-  --ws-shadow-lg: 0 8px 24px rgba(50, 48, 47, 0.12);
+  /* Shadows - Flat and minimalist */
+  --ws-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --ws-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.04);
+  --ws-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.06);
 }

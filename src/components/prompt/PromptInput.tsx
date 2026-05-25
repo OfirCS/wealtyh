@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { SuggestionChip } from "@/lib/types";
 import SuggestionChips from "./SuggestionChips";
+import { playSound } from "@/lib/sounds";
 
 interface PromptInputProps {
   onSubmit: (event: string) => void;
@@ -11,6 +12,7 @@ interface PromptInputProps {
   placeholder?: string;
   initialText?: string;
   autoFocus?: boolean;
+  contextChips?: { label: string; value: string }[];
 }
 
 export default function PromptInput({
@@ -19,6 +21,7 @@ export default function PromptInput({
   placeholder,
   initialText = "",
   autoFocus = false,
+  contextChips = [],
 }: PromptInputProps) {
   const [text, setText] = useState(initialText);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -47,6 +50,7 @@ export default function PromptInput({
   }, [autoFocus]);
 
   const handleChipSelect = useCallback((prompt: string) => {
+    playSound('pop');
     setText(prompt);
     setTimeout(() => {
       if (textareaRef.current) {
@@ -59,6 +63,7 @@ export default function PromptInput({
 
   const handleSubmit = useCallback(() => {
     if (!isValid) return;
+    playSound('tap');
     onSubmit(text.trim());
   }, [text, isValid, onSubmit]);
 
@@ -79,8 +84,12 @@ export default function PromptInput({
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", bounce: 0, duration: 0.6, delay: 0.15 }}
-      className="relative flex flex-col rounded-[32px] px-8 pb-10 pt-2 overflow-hidden bg-[var(--ws-bg-primary)] border border-[var(--ws-border)] shadow-[var(--ws-shadow-lg)]"
+      className="relative flex flex-col rounded-[36px] px-6 pb-6 pt-2 sm:px-8 sm:pb-8 overflow-hidden bg-[var(--ws-bg-primary)] border border-[var(--ws-border)] shadow-[0_26px_80px_rgba(18,18,18,0.18)]"
     >
+      <div
+        className="absolute inset-x-0 top-0 h-40 pointer-events-none"
+        style={{ background: "linear-gradient(180deg, rgba(43,122,66,0.08) 0%, rgba(43,122,66,0) 100%)" }}
+      />
       <div
         className="flex justify-center w-full mb-4 cursor-pointer py-3 hover:opacity-80 transition-opacity relative z-10"
         onClick={() => setIsExpanded(!isExpanded)}
@@ -88,23 +97,50 @@ export default function PromptInput({
         <div className="w-12 h-1.5 rounded-full bg-[var(--ws-border)]" />
       </div>
 
-      <div className="mb-7 relative z-10 px-1">
+      <div className="mb-6 relative z-10 px-1">
+        <span className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ws-text-tertiary)] bg-white/70">
+          <span className="w-2 h-2 rounded-full bg-[var(--ws-accent-green)]" />
+          Wealthsimple Pathfinder
+        </span>
         <motion.h3
-          className="font-serif text-[32px] text-[var(--ws-text-primary)] tracking-tight leading-none mb-3"
+          className="font-serif text-[32px] sm:text-[38px] text-[var(--ws-text-primary)] tracking-tight leading-none mt-4 mb-3"
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ type: "spring", bounce: 0, duration: 0.6, delay: 0.3 }}
         >
-          Pathfinder AI
+          Build a plan from your real money picture.
         </motion.h3>
         <motion.p
-          className="text-[16px] font-medium text-[var(--ws-text-secondary)] leading-relaxed"
+          className="text-[15px] sm:text-[16px] font-medium text-[var(--ws-text-secondary)] leading-relaxed max-w-[680px]"
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.4 }}
         >
-          Describe what&rsquo;s changing — get a plan.
+          Describe what&rsquo;s changing. Pathfinder will turn it into actions that match your balances, cash flow, and tax room.
         </motion.p>
+
+        {contextChips.length > 0 && (
+          <motion.div
+            className="mt-4 flex flex-wrap gap-2"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.45 }}
+          >
+            {contextChips.map((chip) => (
+              <div
+                key={chip.label}
+                className="rounded-full border px-3 py-1.5 bg-white/80"
+              >
+                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--ws-text-tertiary)]">
+                  {chip.label}
+                </span>
+                <span className="ml-2 text-[12px] font-semibold text-[var(--ws-text-primary)]">
+                  {chip.value}
+                </span>
+              </div>
+            ))}
+          </motion.div>
+        )}
       </div>
 
       <AnimatePresence>
@@ -125,14 +161,14 @@ export default function PromptInput({
 
       {/* Input Field */}
       <div className="relative z-10 px-1 mt-2">
-        <div className="relative flex items-center bg-[var(--ws-bg-surface)] border border-[var(--ws-border)] rounded-[24px] pr-2.5 pl-6 py-2 transition-all duration-300 focus-within:border-[var(--ws-text-secondary)] focus-within:shadow-[0_0_0_1px_var(--ws-text-secondary)]">
+        <div className="relative flex items-center bg-[var(--ws-bg-surface)] border border-[var(--ws-border)] rounded-[26px] pr-2.5 pl-5 sm:pl-6 py-2 transition-all duration-300 focus-within:border-[var(--ws-text-secondary)] focus-within:shadow-[0_0_0_1px_var(--ws-text-secondary)]">
           <textarea
             ref={textareaRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={placeholder || "What's changing in your life?"}
-            className="flex-1 bg-transparent text-[16px] font-medium text-[var(--ws-text-primary)] placeholder:text-[var(--ws-text-tertiary)] focus:outline-none resize-none py-3 leading-relaxed overflow-y-auto hide-scrollbar self-center"
+            className="flex-1 bg-transparent text-[16px] font-medium text-[var(--ws-text-primary)] placeholder:text-[var(--ws-text-tertiary)] focus:outline-none resize-none py-3.5 leading-relaxed overflow-y-auto hide-scrollbar self-center"
             rows={1}
             style={{ minHeight: "24px" }}
           />
@@ -153,6 +189,9 @@ export default function PromptInput({
             </svg>
           </motion.button>
         </div>
+        <p className="mt-3 text-[12px] leading-relaxed text-[var(--ws-text-tertiary)]">
+          Press Enter to run Pathfinder. Shift+Enter adds a new line.
+        </p>
       </div>
     </motion.div>
   );
