@@ -75,6 +75,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         balanceChanges,
         newFundNames,
         fundChanges,
+        openedAccounts: [],
       };
 
       return { step: 'home', profile, customFunds, appliedSummary };
