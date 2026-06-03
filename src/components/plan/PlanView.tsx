@@ -398,8 +398,8 @@ const STEP_COLORS: Record<string, string> = {
   Guardrail: "var(--ws-accent-red)",
 };
 
-function DebugPanel({ log }: { log: DebugLog }) {
-  const [expanded, setExpanded] = useState(false);
+function DebugPanel({ log, defaultExpanded = false }: { log: DebugLog; defaultExpanded?: boolean }) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
     <motion.div
@@ -418,7 +418,7 @@ function DebugPanel({ log }: { log: DebugLog }) {
           </svg>
         </div>
         <p className="text-[12px] font-mono text-[var(--ws-text-tertiary)]">
-          Log &middot; {log.actionsBeforeGuardrails} &rarr; {log.actionsAfterGuardrails} kept
+          Reasoning trace &middot; {log.actionsBeforeGuardrails} drafted &rarr; {log.actionsAfterGuardrails} kept
         </p>
         <svg
           width="12" height="12" viewBox="0 0 24 24" fill="none"
@@ -488,10 +488,12 @@ const PRIORITY_STEP_LABELS: Record<string, string> = {
 function AnalysisDetailsSheet({
   result,
   event,
+  debugLog,
   onClose,
 }: {
   result: PathfinderResult;
   event: string;
+  debugLog: DebugLog | null;
   onClose: () => void;
 }) {
   return (
@@ -579,6 +581,20 @@ function AnalysisDetailsSheet({
               {result.risk_warnings.map((w, i) => (
                 <RiskBanner key={i} warning={w} index={i} />
               ))}
+            </div>
+          )}
+
+          {debugLog && (
+            <div className="flex flex-col gap-3">
+              <p className="text-[11px] text-[var(--ws-text-tertiary)] uppercase tracking-wider font-semibold">
+                How Pathfinder reasoned
+              </p>
+              <p className="text-[13px] leading-relaxed text-[var(--ws-text-secondary)]">
+                The AI proposes; deterministic guardrails dispose. Below is the actual
+                decision trace — where it chose to search, what it drafted, and which
+                suggestions were capped or removed against your real balances.
+              </p>
+              <DebugPanel log={debugLog} defaultExpanded />
             </div>
           )}
         </div>
@@ -687,6 +703,7 @@ export default function PlanView({ result, event, profile, customFunds, searchMe
             <AnalysisDetailsSheet
               result={currentResult}
               event={event}
+              debugLog={debugLog}
               onClose={() => setShowAnalysisDetails(false)}
             />
           )}

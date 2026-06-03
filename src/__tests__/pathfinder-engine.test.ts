@@ -1,5 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
-import { GoogleGenAI } from '@google/genai';
+import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import {
@@ -135,18 +134,9 @@ describe('parsePathfinderResult', () => {
 
 // ── Integration: Router (live AI) ────────────────────────────────────────────
 
-describe('routeQuery (live AI)', () => {
-  let ai: GoogleGenAI;
-
-  beforeAll(() => {
-    const apiKey = process.env.GOOGLE_API_KEY;
-    if (!apiKey) throw new Error('GOOGLE_API_KEY required for integration tests');
-    ai = new GoogleGenAI({ apiKey });
-  });
-
+describe.skipIf(!process.env.GOOGLE_API_KEY)('routeQuery (live AI)', () => {
   it('returns needs_search=false for simple TFSA question', async () => {
     const result = await routeQuery(
-      ai,
       PROFILE_A,
       'I want to max out my TFSA this year',
       [],
@@ -157,7 +147,6 @@ describe('routeQuery (live AI)', () => {
 
   it('returns needs_search=true for mortgage/housing question', async () => {
     const result = await routeQuery(
-      ai,
       PROFILE_A,
       'I want to buy a condo in downtown Toronto for $700K',
       [],
@@ -169,7 +158,6 @@ describe('routeQuery (live AI)', () => {
 
   it('returns needs_search=true for business startup', async () => {
     const result = await routeQuery(
-      ai,
       PROFILE_B,
       'I want to quit my job and open a coffee shop in Vancouver',
       [],
@@ -181,17 +169,9 @@ describe('routeQuery (live AI)', () => {
 
 // ── Integration: Search (live Google Search) ─────────────────────────────────
 
-describe('searchForContext (live Google Search)', () => {
-  let ai: GoogleGenAI;
-
-  beforeAll(() => {
-    const apiKey = process.env.GOOGLE_API_KEY;
-    if (!apiKey) throw new Error('GOOGLE_API_KEY required for integration tests');
-    ai = new GoogleGenAI({ apiKey });
-  });
-
+describe.skipIf(!process.env.GOOGLE_API_KEY)('searchForContext (live Google Search)', () => {
   it('returns real data and sources for mortgage rate query', async () => {
-    const { text, metadata } = await searchForContext(ai, [
+    const { text, metadata } = await searchForContext([
       'current 5-year fixed mortgage rate Canada 2026',
     ]);
     expect(text.length).toBeGreaterThan(50);
@@ -207,13 +187,7 @@ describe('searchForContext (live Google Search)', () => {
 
 // ── Integration: Full orchestrator (router + optional search + generate) ─────
 
-describe('runPathfinder (full pipeline)', () => {
-  beforeAll(() => {
-    if (!process.env.GOOGLE_API_KEY) {
-      throw new Error('GOOGLE_API_KEY required for integration tests');
-    }
-  });
-
+describe.skipIf(!process.env.GOOGLE_API_KEY)('runPathfinder (full pipeline)', () => {
   it('runs full pipeline for simple scenario (no search)', async () => {
     const { result, searchMetadata } = await runPathfinder(
       PROFILE_A,

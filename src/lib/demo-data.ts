@@ -415,26 +415,74 @@ const genericResult: PathfinderResult = {
   ],
 };
 
+// ── Reasoning traces (surfaced in the "How Pathfinder reasoned" view) ───────
+
+const babyDebugLog: DebugLog = {
+  entries: [
+    { step: 'Router', detail: 'Search needed: parental leave EI cap, Ontario childcare cost', data: 'Parental-leave benefits and childcare costs depend on current-year rates, so live data changes the dollar amounts.' },
+    { step: 'Search', detail: 'Found 3 sources' },
+    { step: 'Generate', detail: 'Drafted 6 actions', data: 'Move $3,000 → Baby Buffer | Open RESP | Pause FHSA | Pay off credit card | Automate $400/mo → TFSA | Max FHSA $8,000' },
+    { step: 'Guardrail', detail: 'Removed 1, kept 5', data: '"Max FHSA $8,000" — not a home-buying event' },
+  ],
+  actionsBeforeGuardrails: 6,
+  actionsAfterGuardrails: 5,
+  removedActions: ['"Max FHSA $8,000" — not a home-buying event'],
+};
+
+const homeDebugLog: DebugLog = {
+  entries: [
+    { step: 'Router', detail: 'Search needed: FHSA limit, mortgage stress-test rate, HBP max', data: 'Mortgage qualifying rates and registered-account limits change yearly — fetch current numbers.' },
+    { step: 'Search', detail: 'Found 3 sources' },
+    { step: 'Generate', detail: 'Drafted 5 actions', data: 'Max FHSA | Down Payment fund | RRSP for HBP | Pay off credit card | Open RESP' },
+    { step: 'Guardrail', detail: 'Removed 1, kept 4', data: '"Open RESP" — no children mentioned in this event' },
+  ],
+  actionsBeforeGuardrails: 5,
+  actionsAfterGuardrails: 4,
+  removedActions: ['"Open RESP" — no children mentioned in this event'],
+};
+
+const careerDebugLog: DebugLog = {
+  entries: [
+    { step: 'Router', detail: 'No search needed', data: 'Runway and burn rate derive entirely from the user’s own balances — no external data required.' },
+    { step: 'Generate', detail: 'Drafted 5 actions', data: 'Create Runway fund | Trim discretionary | Pause TFSA/RRSP | Pay off credit card | Max TFSA $14,000' },
+    { step: 'Guardrail', detail: 'Removed 1, kept 4', data: '"Max TFSA $14,000" — a career break needs liquidity, not new contributions' },
+  ],
+  actionsBeforeGuardrails: 5,
+  actionsAfterGuardrails: 4,
+  removedActions: ['"Max TFSA $14,000" — a career break needs liquidity, not new contributions'],
+};
+
+const genericDebugLog: DebugLog = {
+  entries: [
+    { step: 'Router', detail: 'No search needed', data: 'General optimization from existing balances — no live data changes the math.' },
+    { step: 'Generate', detail: 'Drafted 3 actions', data: 'Pay off credit card | Automate $400/mo → TFSA | Create Emergency fund' },
+    { step: 'Guardrail', detail: 'Kept 3 of 3', data: 'All actions within balances and room' },
+  ],
+  actionsBeforeGuardrails: 3,
+  actionsAfterGuardrails: 3,
+  removedActions: [],
+};
+
 const scenarios: DemoScenario[] = [
   {
     match: /baby|kid|child|pregnan|newborn|maternity|paternity/i,
     result: babyResult,
     searchMetadata: babySearch,
-    debugLog: null,
+    debugLog: babyDebugLog,
     needsSearch: true,
   },
   {
     match: /home|house|mortgage|condo|buy.*place|downpayment|down\s*payment/i,
     result: homeResult,
     searchMetadata: homeSearch,
-    debugLog: null,
+    debugLog: homeDebugLog,
     needsSearch: true,
   },
   {
     match: /career\s*break|sabbatical|quit.*job|leave.*job|time\s*off|gap\s*year/i,
     result: careerBreakResult,
     searchMetadata: careerSearch,
-    debugLog: null,
+    debugLog: careerDebugLog,
     needsSearch: false,
   },
 ];
@@ -447,7 +495,7 @@ export function pickDemoScenario(lifeEvent: string): DemoScenario {
     match: /.*/,
     result: genericResult,
     searchMetadata: null,
-    debugLog: null,
+    debugLog: genericDebugLog,
     needsSearch: false,
   };
 }

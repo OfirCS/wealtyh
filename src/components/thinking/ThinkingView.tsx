@@ -47,7 +47,7 @@ export default function ThinkingView({
   const [thinkingSteps, setThinkingSteps] = useState<ThinkingStep[]>([]);
   const [heroImage, setHeroImage] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
-  const [showProgress, setShowProgress] = useState(false);
+  const [showProgress] = useState(true);
   const hasStarted = useRef(false);
   const totalStepsRef = useRef(5); // max: router, search, analyze, generate, guardrails
   const completedStepsRef = useRef(0);
@@ -107,8 +107,6 @@ export default function ThinkingView({
   useEffect(() => {
     if (hasStarted.current) return;
     hasStarted.current = true;
-
-    setShowProgress(true);
 
     // Fire image generation separately (skipped in static-demo mode — no server)
     if (!IS_STATIC_DEMO) {

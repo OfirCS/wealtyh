@@ -68,14 +68,19 @@ export default function BackendFlowPage() {
   const [searchUsed, setSearchUsed] = useState(true);
 
   useEffect(() => {
+    // One-time sync of demo state from URL params on mount. An effect is the
+    // correct place for this: `window` is unavailable during static export SSR,
+    // so reading it lazily in useState would risk a hydration mismatch.
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     const requestedStep = params.get('step');
+    /* eslint-disable react-hooks/set-state-in-effect */
     if (requestedStep && STEP_OPTIONS.includes(requestedStep as DemoStep)) {
       setStep(requestedStep as DemoStep);
     }
     setIsPromptOpen(params.get('promptOpen') !== '0');
     setSearchUsed(params.get('searchUsed') !== '0');
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   const searchMetadata = useMemo<SearchMetadata | null | undefined>(() => {

@@ -52,3 +52,6 @@ transition-screenshots/
 
 # stash dir used by build:static
 /.api-stash/
+
+# eval run artifact (regenerated; RESULTS.md is the committed snapshot)
+evals/results.json

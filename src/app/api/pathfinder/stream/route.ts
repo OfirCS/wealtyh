@@ -135,6 +135,7 @@ export async function POST(request: NextRequest) {
           detail: route.needs_search
             ? `Search needed: ${route.queries.join(', ')}`
             : 'No search needed',
+          data: route.reasoning,
         });
         send({
           type: 'step',

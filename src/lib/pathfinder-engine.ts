@@ -136,7 +136,7 @@ const GENERIC_THINKING_PATTERNS = [
   /housing.*sustain/i,
 ];
 
-function filterThinkingSteps(steps: ThinkingStep[], lifeEvent: string): ThinkingStep[] {
+export function filterThinkingSteps(steps: ThinkingStep[], lifeEvent: string): ThinkingStep[] {
   const eventLower = lifeEvent.toLowerCase();
 
   // Detect intent: is the user abandoning a goal?
@@ -771,6 +771,7 @@ If searching, return 1-3 focused, specific, Canadian-focused queries.`;
 export interface RouterResult {
   needs_search: boolean;
   queries: string[];
+  reasoning?: string;
 }
 
 export async function routeQuery(
@@ -791,12 +792,14 @@ export async function routeQuery(
   try {
     const cleaned = stripMarkdownFences(text.trim());
     const parsed = JSON.parse(cleaned);
-    if (parsed.reasoning) {
-      console.info('[Router] Reasoning:', parsed.reasoning);
+    const reasoning = typeof parsed.reasoning === 'string' ? parsed.reasoning : undefined;
+    if (reasoning) {
+      console.info('[Router] Reasoning:', reasoning);
     }
     return {
       needs_search: Boolean(parsed.needs_search),
       queries: Array.isArray(parsed.queries) ? parsed.queries.slice(0, 3) : [],
+      reasoning,
     };
   } catch {
     console.warn('[Router] Failed to parse, skipping search:', text.slice(0, 200));
@@ -1032,6 +1035,7 @@ export async function runPathfinder(
     detail: route.needs_search
       ? `Search needed: ${route.queries.join(', ')}`
       : 'No search needed',
+    data: route.reasoning,
   });
 
   // Step 2: Search if needed (always Gemini for Google grounding)
