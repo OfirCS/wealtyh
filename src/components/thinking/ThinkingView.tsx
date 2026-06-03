@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { FinancialProfile, CustomFund, PathfinderResult, SearchMetadata, DebugLog, ThinkingStep } from "@/lib/types";
-import { callPathfinderStream, IS_STATIC_DEMO } from "@/lib/claude";
+import { callPathfinderStream } from "@/lib/claude";
 import type { StreamEvent } from "@/lib/claude";
 import type { PipelineStepStatus } from "@/components/app/HomeClient";
 import { computeDerivedMetrics } from "@/lib/prompts";
@@ -45,7 +45,6 @@ export default function ThinkingView({
 }: ThinkingViewProps) {
   const [steps, setSteps] = useState<AgentStep[]>([]);
   const [thinkingSteps, setThinkingSteps] = useState<ThinkingStep[]>([]);
-  const [heroImage, setHeroImage] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [showProgress] = useState(true);
   const hasStarted = useRef(false);
@@ -107,22 +106,6 @@ export default function ThinkingView({
   useEffect(() => {
     if (hasStarted.current) return;
     hasStarted.current = true;
-
-    // Fire image generation separately (skipped in static-demo mode — no server)
-    if (!IS_STATIC_DEMO) {
-      fetch("/api/generate-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lifeEvent: event }),
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.imageBase64) {
-            setHeroImage(`data:image/png;base64,${data.imageBase64}`);
-          }
-        })
-        .catch(() => { });
-    }
 
     // Start streaming
     let finalResult: PathfinderResult | null = null;
@@ -225,20 +208,6 @@ export default function ThinkingView({
             </div>
           </div>
 
-          <AnimatePresence>
-            {heroImage && (
-              <motion.div
-                className="w-full sm:w-[210px] shrink-0"
-                initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                transition={{ type: "spring", bounce: 0, duration: 0.8 }}
-              >
-                <div className="w-full aspect-square rounded-[28px] overflow-hidden border border-white/80 shadow-[0_20px_40px_rgba(18,18,18,0.1)]">
-                  <img src={heroImage} alt="Your financial path" className="w-full h-full object-cover" />
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
         </div>
 
         <div className="mt-7 flex flex-col gap-2">

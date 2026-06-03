@@ -391,87 +391,121 @@ function SearchSourcesBanner({ metadata }: { metadata: SearchMetadata }) {
   );
 }
 
-const STEP_COLORS: Record<string, string> = {
-  Router: "var(--ws-accent-blue, #4A90D9)",
-  Search: "var(--ws-accent-green)",
-  Generate: "var(--ws-text-primary)",
-  Guardrail: "var(--ws-accent-red)",
-};
+/**
+ * The recruiter-facing money shot: a clean, always-visible trace of how the
+ * agentic pipeline reasoned — router decision + reasoning, live sources, and
+ * exactly which drafted actions the deterministic guardrails capped or removed.
+ */
+function ReasoningTrace({ log, searchMetadata }: { log: DebugLog; searchMetadata: SearchMetadata | null }) {
+  const [expanded, setExpanded] = useState(true);
+  const router = log.entries.find((e) => e.step === 'Router');
+  const search = log.entries.find((e) => e.step === 'Search');
+  const sources = searchMetadata?.sources ?? [];
+  const removed = log.removedActions;
 
-function DebugPanel({ log, defaultExpanded = false }: { log: DebugLog; defaultExpanded?: boolean }) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const summary = `${search ? `searched ${sources.length} source${sources.length === 1 ? '' : 's'}` : 'no web search needed'} · drafted ${log.actionsBeforeGuardrails} → kept ${log.actionsAfterGuardrails}`;
 
   return (
     <motion.div
-      className="mb-5"
+      className="mb-5 rounded-[20px] border border-[var(--ws-border)] bg-[var(--ws-bg-surface)] overflow-hidden"
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
+      transition={{ duration: 0.35 }}
     >
       <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-fit flex items-center gap-2 mb-2 cursor-pointer bg-transparent border-none"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-start justify-between gap-3 px-4 sm:px-5 py-3.5 text-left cursor-pointer"
       >
-        <div className="w-4 h-4 rounded-[4px] bg-[var(--ws-text-tertiary)] flex items-center justify-center">
-          <svg width="8" height="8" viewBox="0 0 12 12" fill="none">
-            <path d="M2 4L6 8L10 4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+        <div className="flex items-start gap-3 min-w-0">
+          <span className="mt-0.5 w-6 h-6 rounded-full bg-[var(--ws-accent-green)]/12 flex items-center justify-center shrink-0">
+            <span className="w-2 h-2 rounded-full bg-[var(--ws-accent-green)]" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[14px] font-semibold text-[var(--ws-text-primary)] leading-tight">How Pathfinder reasoned</p>
+            <p className="text-[12px] text-[var(--ws-text-secondary)] mt-0.5 truncate">{summary}</p>
+          </div>
         </div>
-        <p className="text-[12px] font-mono text-[var(--ws-text-tertiary)]">
-          Reasoning trace &middot; {log.actionsBeforeGuardrails} drafted &rarr; {log.actionsAfterGuardrails} kept
-        </p>
-        <svg
-          width="12" height="12" viewBox="0 0 24 24" fill="none"
-          className={`text-[var(--ws-text-tertiary)] transition-transform duration-300 ${expanded ? "rotate-180" : ""}`}
-        >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className={`text-[var(--ws-text-tertiary)] shrink-0 mt-1 transition-transform duration-300 ${expanded ? 'rotate-180' : ''}`}>
           <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
 
-      <AnimatePresence>
+      <AnimatePresence initial={false}>
         {expanded && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
+            animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
+            transition={{ duration: 0.22 }}
             className="overflow-hidden"
           >
-            <div className="bg-[#1a1a19] border border-[var(--ws-border)] rounded-[12px] p-4 font-mono text-[11px] flex flex-col gap-3">
-              {log.entries.map((entry, i) => (
-                <div key={i} className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase"
-                      style={{ color: STEP_COLORS[entry.step] || "var(--ws-text-secondary)", backgroundColor: "rgba(255,255,255,0.05)" }}
-                    >
-                      {entry.step}
-                    </span>
-                    <span className="text-[var(--ws-text-secondary)]">{entry.detail}</span>
-                  </div>
-                  {entry.data && (
-                    <p className="text-[var(--ws-text-tertiary)] pl-4 text-[10px] leading-relaxed break-all">
-                      {entry.data}
-                    </p>
-                  )}
-                </div>
-              ))}
+            <div className="px-4 sm:px-5 pb-4 pt-1 flex flex-col gap-3">
+              <p className="text-[12px] text-[var(--ws-text-tertiary)] leading-relaxed">
+                The model proposes; deterministic guardrails check every dollar against your real balances.
+              </p>
 
-              {log.removedActions.length > 0 && (
-                <div className="pt-2 border-t border-[var(--ws-border)]">
-                  <p className="text-[var(--ws-accent-red)] text-[10px] font-bold uppercase mb-1">Removed</p>
-                  {log.removedActions.map((r, i) => (
-                    <p key={i} className="text-[var(--ws-text-tertiary)] text-[10px] leading-relaxed">
-                      {r}
-                    </p>
-                  ))}
-                </div>
+              <TraceStep n={1} title={search ? 'Routed → search' : 'Routed'} body={router?.detail}>
+                {router?.data && (
+                  <p className="text-[12px] italic text-[var(--ws-text-secondary)] leading-relaxed">&ldquo;{router.data}&rdquo;</p>
+                )}
+              </TraceStep>
+
+              {search && (
+                <TraceStep n={2} title="Pulled live data" body={search.detail}>
+                  {sources.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-0.5">
+                      {sources.slice(0, 5).map((s, i) => {
+                        let label = s.title || '';
+                        if (!label) { try { label = new URL(s.url).hostname.replace('www.', ''); } catch { label = 'Source'; } }
+                        return (
+                          <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-[var(--ws-text-secondary)] hover:text-[var(--ws-text-primary)] bg-[var(--ws-bg-primary)] border border-[var(--ws-border)] px-2 py-0.5 rounded-full truncate max-w-[180px]">
+                            {label}
+                          </a>
+                        );
+                      })}
+                    </div>
+                  )}
+                </TraceStep>
               )}
+
+              <TraceStep n={search ? 3 : 2} title="Drafted a plan" body={`${log.actionsBeforeGuardrails} actions proposed by the model`} />
+
+              <TraceStep
+                n={search ? 4 : 3}
+                title="Checked every number"
+                body={`Kept ${log.actionsAfterGuardrails} of ${log.actionsBeforeGuardrails}${removed.length ? ` · removed ${removed.length}` : ' · all valid'}`}
+              >
+                {removed.length > 0 && (
+                  <div className="flex flex-col gap-1 mt-0.5">
+                    {removed.map((r, i) => (
+                      <div key={i} className="flex items-start gap-1.5">
+                        <span className="mt-[6px] w-1.5 h-1.5 rounded-full bg-[var(--ws-accent-red)] shrink-0" />
+                        <p className="text-[12px] text-[var(--ws-text-secondary)] leading-snug">{r}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </TraceStep>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
     </motion.div>
+  );
+}
+
+function TraceStep({ n, title, body, children }: { n: number; title: string; body?: string; children?: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="mt-0.5 w-5 h-5 rounded-full bg-[var(--ws-bg-primary)] border border-[var(--ws-border)] flex items-center justify-center text-[10px] font-bold text-[var(--ws-text-secondary)] shrink-0">
+        {n}
+      </span>
+      <div className="min-w-0 flex flex-col gap-1">
+        <p className="text-[13px] font-semibold text-[var(--ws-text-primary)] leading-tight">{title}</p>
+        {body && <p className="text-[12px] text-[var(--ws-text-secondary)] leading-snug">{body}</p>}
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -488,12 +522,10 @@ const PRIORITY_STEP_LABELS: Record<string, string> = {
 function AnalysisDetailsSheet({
   result,
   event,
-  debugLog,
   onClose,
 }: {
   result: PathfinderResult;
   event: string;
-  debugLog: DebugLog | null;
   onClose: () => void;
 }) {
   return (
@@ -584,19 +616,6 @@ function AnalysisDetailsSheet({
             </div>
           )}
 
-          {debugLog && (
-            <div className="flex flex-col gap-3">
-              <p className="text-[11px] text-[var(--ws-text-tertiary)] uppercase tracking-wider font-semibold">
-                How Pathfinder reasoned
-              </p>
-              <p className="text-[13px] leading-relaxed text-[var(--ws-text-secondary)]">
-                The AI proposes; deterministic guardrails dispose. Below is the actual
-                decision trace — where it chose to search, what it drafted, and which
-                suggestions were capped or removed against your real balances.
-              </p>
-              <DebugPanel log={debugLog} defaultExpanded />
-            </div>
-          )}
         </div>
       </motion.div>
     </motion.div>
@@ -703,7 +722,6 @@ export default function PlanView({ result, event, profile, customFunds, searchMe
             <AnalysisDetailsSheet
               result={currentResult}
               event={event}
-              debugLog={debugLog}
               onClose={() => setShowAnalysisDetails(false)}
             />
           )}
@@ -780,8 +798,10 @@ export default function PlanView({ result, event, profile, customFunds, searchMe
                   exit="exit"
                   className="w-full max-w-5xl mx-auto flex flex-col pt-2"
                 >
+                  {debugLog && <ReasoningTrace log={debugLog} searchMetadata={searchMetadata} />}
+
                   <div className="flex flex-row items-center gap-3 mb-4">
-                    {searchMetadata && <SearchSourcesBanner metadata={searchMetadata} />}
+                    {!debugLog && searchMetadata && <SearchSourcesBanner metadata={searchMetadata} />}
 
                     <button
                       onClick={() => setShowAnalysisDetails(true)}
@@ -791,7 +811,7 @@ export default function PlanView({ result, event, profile, customFunds, searchMe
                         <path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" stroke="currentColor" strokeWidth="1.5" />
                         <path d="M12 8v8M9 12h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                       </svg>
-                      Why this plan
+                      Full analysis
                     </button>
                   </div>
 
