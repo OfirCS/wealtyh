@@ -108,6 +108,8 @@ export interface PathfinderResult {
   account_impacts: AccountImpact[];
   monthly_cashflow: CashflowPoint[];
   research_needed?: ResearchTopic[];
+  /** Set when the plan came from the built-in rules instead of the AI pipeline. */
+  source?: 'local';
 }
 
 // ===== Search Metadata (passed from API to UI) =====

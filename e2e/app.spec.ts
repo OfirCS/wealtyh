@@ -1,146 +1,127 @@
-import { test, expect } from '@playwright/test';
-import { mockPathfinderResponse } from './fixtures/mock-result';
+import { expect, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
 
+// No test here calls a real AI service. The stream answers "no keys", which
+// sends the app down its built-in planner, so plans are instant and free.
 test.beforeEach(async ({ page }) => {
-  // Mock the pathfinder API to avoid real AI calls
-  await page.route('**/api/pathfinder', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(mockPathfinderResponse),
-    }),
+  await page.route('**/api/pathfinder/stream', (route) =>
+    route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'No keys', code: 'NO_AI_KEYS' }) }),
   );
 });
 
-test('home screen shows total balance and account cards', async ({ page }) => {
+async function useSampleNumbers(page: Page) {
   await page.goto('/');
-  await expect(page.getByText('Total balance')).toBeVisible();
-  await expect(page.getByText('Chequing')).toBeVisible();
-  await expect(page.getByText('TFSA')).toBeVisible();
-  await expect(page.getByText('RRSP')).toBeVisible();
-  await expect(page.getByText('FHSA')).toBeVisible();
+  await page.getByRole('button', { name: 'Try it with sample numbers' }).click();
+  await expect(page.getByText('Your money')).toBeVisible();
+}
+
+test('a new visitor is asked to connect before typing anything', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'What’s changing in your life?' })).toBeVisible();
+  await page.getByRole('button', { name: 'Having a baby' }).click();
+  await expect(page.getByRole('heading', { name: 'Let me see your money.' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Apple Wallet/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Bank or card/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Email/ })).toBeVisible();
 });
 
-test('edit profile and save', async ({ page }) => {
+test('typing is still possible as a fallback, and the plan answers plainly', async ({ page }) => {
   await page.goto('/');
-  await page.getByLabel('Edit accounts').click();
-  await expect(page.getByText('Edit Snapshot')).toBeVisible();
-
-  // Switch to accounts tab
-  await page.getByRole('button', { name: 'accounts' }).click();
-  await expect(page.getByText('Account Balances')).toBeVisible();
-
-  // Save and return to display mode
-  await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByText('Total balance')).toBeVisible();
+  await page.getByRole('button', { name: 'Having a baby' }).click();
+  await page.getByRole('button', { name: 'Type it in instead' }).click();
+  await page.getByRole('button', { name: '$80k' }).click();
+  await expect(page.getByRole('heading', { name: 'What does housing cost each month?' })).toBeVisible();
+  await page.getByRole('button', { name: '$2k', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'What else do you spend each month?' })).toBeVisible();
+  await page.getByRole('button', { name: '$2k', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'How much cash do you have?' })).toBeVisible();
+  await page.getByRole('button', { name: '$25k' }).click();
+  await expect(page.getByRole('heading', { name: 'What have you invested?' })).toBeVisible();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('button', { name: 'Nothing' }).click();
+  await expect(page.getByRole('heading', { name: /a month short|afford/ })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('On leave', { exact: true })).toBeVisible();
 });
 
-test('submit event → thinking → plan view', async ({ page }) => {
+test('a connected statement replaces most questions', async ({ page }) => {
   await page.goto('/');
-
-  // Open the prompt overlay via FAB
-  await page.getByLabel('Open Pathfinder').click();
-
-  // Type an event and submit
-  const input = page.locator('textarea').first();
-  await input.fill('I want to build an emergency fund');
-  await input.press('Enter');
-
-  // Should transition to plan view
-  await expect(page.getByText('Your Pathfinder')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Move $2,000 to Emergency Fund')).toBeVisible();
-  await expect(page.getByText('Set up $200/mo auto-deposit to TFSA')).toBeVisible();
+  await page.getByRole('button', { name: 'Having a baby' }).click();
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'statement.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from('Date,Description,Amount\n2026-10-01,RENT PAYMENT,-2000\n2026-10-05,PAYROLL DEPOSIT,5000\n2026-10-09,LOBLAWS,-300\n'),
+  });
+  await expect(page.getByRole('heading', { name: 'How much cash do you have?' })).toBeVisible({ timeout: 10_000 });
 });
 
-test('confirm action and return home with feedback', async ({ page }) => {
-  await page.goto('/');
-
-  // Submit event
-  await page.getByLabel('Open Pathfinder').click();
-  const input = page.locator('textarea').first();
-  await input.fill('I want to build an emergency fund');
-  await input.press('Enter');
-  await expect(page.getByText('Your Pathfinder')).toBeVisible({ timeout: 10_000 });
-
-  // Tap the first action (move — requires double confirm)
-  await page.getByText('Move $2,000 to Emergency Fund').first().click();
-  await expect(page.getByText('Review transfer')).toBeVisible();
-  await page.getByText('Review transfer').click();
-  await expect(page.getByText('Confirm transfer')).toBeVisible();
-  await page.getByText('Confirm transfer').click();
-
-  // Action should now be in "Completed" section
-  await expect(page.getByRole('heading', { name: 'Completed' })).toBeVisible();
-
-  // Click "Back to Accounts"
-  await page.getByRole('button', { name: 'Back to Accounts' }).click();
-
-  // Should be back home with feedback
-  await expect(page.getByText('Total balance')).toBeVisible({ timeout: 5_000 });
-  await expect(page.getByText('Done')).toBeVisible();
-
-  // Check balance delta and NEW pill on Emergency Fund
-  await expect(page.getByText('-$2,000')).toBeVisible();
-  await expect(page.getByText('Emergency Fund', { exact: true })).toBeVisible();
-  await expect(page.getByText('New', { exact: true })).toBeVisible();
+test('saving steps updates your money', async ({ page }) => {
+  await useSampleNumbers(page);
+  await page.getByRole('button', { name: 'Pay off debt' }).click();
+  await expect(page.getByRole('heading', { name: 'What to do' })).toBeVisible({ timeout: 15_000 });
+  await page.getByRole('button', { name: /^Add to plan:/ }).first().click();
+  await expect(page.getByText('✓ Added')).toBeVisible();
+  await page.getByRole('button', { name: 'Save my plan' }).click();
+  await expect(page.getByText('✓ Your plan is saved')).toBeVisible();
 });
 
-test('dismiss feedback banner', async ({ page }) => {
+test('the budget opens on a live sample, never blank', async ({ page }) => {
   await page.goto('/');
-
-  // Fast path: submit + confirm + return
-  await page.getByLabel('Open Pathfinder').click();
-  const input = page.locator('textarea').first();
-  await input.fill('I want to build an emergency fund');
-  await input.press('Enter');
-  await expect(page.getByText('Your Pathfinder')).toBeVisible({ timeout: 10_000 });
-
-  await page.getByText('Move $2,000 to Emergency Fund').first().click();
-  await page.getByText('Review transfer').click();
-  await page.getByText('Confirm transfer').click();
-  await page.getByRole('button', { name: 'Back to Accounts' }).click();
-  await expect(page.getByText('Done')).toBeVisible({ timeout: 5_000 });
-
-  // Dismiss banner
-  await page.getByLabel('Dismiss').click();
-  await expect(page.getByText('Done')).not.toBeVisible();
+  await page.getByRole('navigation').getByRole('button', { name: 'Budget' }).click();
+  await expect(page.getByText(/Sample family/)).toBeVisible();
+  await expect(page.getByRole('grid').first()).toBeVisible();
+  await expect(page.getByRole('gridcell', { name: 'Groceries' }).first()).toBeVisible();
 });
 
-test('plan view tab navigation', async ({ page }) => {
-  await page.goto('/');
+test.describe('on a big screen', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
 
-  await page.getByLabel('Open Pathfinder').click();
-  const input = page.locator('textarea').first();
-  await input.fill('I want to build an emergency fund');
-  await input.press('Enter');
-  await expect(page.getByText('Your Pathfinder')).toBeVisible({ timeout: 10_000 });
+  test('sheets drag around the board and remember where they were', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('navigation').getByRole('button', { name: 'Budget' }).click();
+    const title = page.getByRole('heading', { name: 'This month' });
+    await expect(title).toBeVisible();
+    const before = await title.boundingBox();
+    await page.mouse.move(before!.x + 10, before!.y + 8);
+    await page.mouse.down();
+    await page.mouse.move(before!.x + 130, before!.y + 70, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(400);
+    const after = await title.boundingBox();
+    expect(after!.x).toBeGreaterThan(before!.x + 80);
+    await page.getByRole('button', { name: 'Tidy up' }).click();
+    await page.waitForTimeout(500);
+    const tidy = await title.boundingBox();
+    expect(Math.abs(tidy!.x - before!.x)).toBeLessThan(14);
+  });
 
-  // Actions tab (default)
-  await expect(page.getByText('Move $2,000 to Emergency Fund')).toBeVisible();
+  test('a budget cell can be edited like a spreadsheet', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('navigation').getByRole('button', { name: 'Budget' }).click();
+    const sheet = page.getByRole('region', { name: 'This month' });
+    const cell = sheet.getByRole('row', { name: /Groceries/ }).getByRole('gridcell').nth(1);
+    await cell.click();
+    await cell.click();
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type('1234');
+    await page.keyboard.press('Enter');
+    await expect(sheet.getByRole('row', { name: /Groceries/ })).toContainText('1,234');
+  });
 
-  // Switch to Impacts
-  await page.getByRole('button', { name: 'impacts' }).click();
-  await expect(page.getByText('Chequing', { exact: true })).toBeVisible();
-
-  // Switch to Cashflow
-  await page.getByRole('button', { name: 'cashflow' }).click();
-  await expect(page.getByText('Month 1').first()).toBeVisible();
-
-  // Back to Actions
-  await page.getByRole('button', { name: 'actions' }).click();
-  await expect(page.getByText('Move $2,000 to Emergency Fund')).toBeVisible();
+  test('dragging a purchase onto a category sorts it', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('navigation').getByRole('button', { name: 'Budget' }).click();
+    const purchase = page.getByRole('region', { name: 'Purchases' }).locator('[draggable="true"]').first();
+    const target = page.getByRole('region', { name: 'This month' }).getByRole('row', { name: /Health/ });
+    await purchase.dragTo(target);
+    await expect(page.getByText(/moved to Health/)).toBeVisible();
+  });
 });
 
-test('start over returns to home', async ({ page }) => {
-  await page.goto('/');
-
-  await page.getByLabel('Open Pathfinder').click();
-  const input = page.locator('textarea').first();
-  await input.fill('I want to build an emergency fund');
-  await input.press('Enter');
-  await expect(page.getByText('Your Pathfinder')).toBeVisible({ timeout: 10_000 });
-
-  // Click "Start over"
-  await page.getByRole('button', { name: 'Start over' }).click();
-  await expect(page.getByText('Total balance')).toBeVisible({ timeout: 5_000 });
+test('share links keep numbers out of the query string', async ({ page }) => {
+  await useSampleNumbers(page);
+  await page.getByRole('button', { name: 'Pay off debt' }).click();
+  await expect(page.getByRole('heading', { name: 'What to do' })).toBeVisible({ timeout: 15_000 });
+  const { hash, search } = new URL(page.url());
+  expect(hash).toContain('s=');
+  expect(search).not.toContain('s=');
 });

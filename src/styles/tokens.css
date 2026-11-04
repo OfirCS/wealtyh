@@ -1,53 +1,22 @@
 :root {
-  /* Colors */
-  --ws-bg-primary: #F4F3EF;
-  /* Subtle sand/beige background */
-  --ws-bg-surface: #FFFFFF;
-  /* Pure white for cards */
-  --ws-bg-elevated: #F8F8F8;
-  /* Soft white for hovered or secondary surfaces */
-  --ws-bg-dark: #EAE8E1;
-  /* Muted sand for deeper backgrounds */
-  --ws-bg-advisor: #F8F8F8;
+  color-scheme: light;
 
-  --ws-text-primary: #1A1A1A;
-  /* Near black text */
-  --ws-text-secondary: #63615F;
-  /* Warm medium grey */
-  --ws-text-tertiary: #A19F9D;
-  /* Light warm grey */
-  --ws-text-inverse: #FFFFFF;
-  /* Light text for dark buttons */
+  /* Black and white. Hierarchy comes from size, weight and space, not colour. */
+  --pf-bg-primary: #FFFFFF;
+  --pf-bg-surface: #FFFFFF;
+  --pf-bg-elevated: #F6F6F5;
+  --pf-bg-dark: #EDEDEB;
+  --pf-bg-hover: #F2F2F1;
+  --pf-bg-advisor: #F6F6F5;
 
-  --ws-accent-yellow: #1A1A1A;
-  /* Using near black as primary accent */
-  --ws-accent-green: #00A368;
-  /* Wealthsimple vibrant green */
-  --ws-accent-red: #D94343;
-  /* Standard error red */
+  --pf-text-primary: #0A0A0A;
+  --pf-text-secondary: #545454;
+  --pf-text-tertiary: #757575;
+  --pf-text-inverse: #FFFFFF;
 
-  --ws-border: #E8E6DF;
-  /* Subtle warm border */
-  --ws-border-hover: #D1CFCD;
-  --ws-bg-hover: #EBEBEB;
+  --pf-accent-green: #0A0A0A;
+  --pf-accent-red: #0A0A0A;
 
-  /* Spacing */
-  --ws-space-xs: 4px;
-  --ws-space-sm: 8px;
-  --ws-space-md: 16px;
-  --ws-space-lg: 24px;
-  --ws-space-xl: 40px;
-  --ws-space-2xl: 64px;
-
-  /* Radius */
-  --ws-radius-sm: 4px;
-  --ws-radius-md: 8px;
-  /* sharper corners for WS style */
-  --ws-radius-lg: 16px;
-  /* slightly round components */
-
-  /* Shadows - Flat and minimalist */
-  --ws-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --ws-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.04);
-  --ws-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.06);
+  --pf-border: #E6E6E4;
+  --pf-border-hover: #0A0A0A;
 }

@@ -15,47 +15,18 @@ const SPONSOR: Sponsor | null = (() => {
 })();
 
 export default function SponsorSlot() {
-  const sponsor = SPONSOR ?? {
-    name: 'Your brand here',
-    pitch: 'Reach Canadians planning real money moves.',
-    url: 'mailto:hello@pathfinder.fyi?subject=Sponsor%20Pathfinder',
-  };
-  const isPlaceholder = !SPONSOR;
+  if (!SPONSOR) return null;
 
   return (
     <a
-      href={sponsor.url}
-      target={sponsor.url.startsWith('mailto:') ? undefined : '_blank'}
+      href={SPONSOR.url}
+      target="_blank"
       rel="noopener noreferrer sponsored"
-      className="block rounded-2xl px-4 py-3 transition-all hover:translate-y-[-1px]"
-      style={{
-        backgroundColor: 'var(--ws-bg-surface)',
-        border: '1px dashed var(--ws-border)',
-      }}
+      className="block rounded-[14px] bg-[var(--pf-bg-elevated)] p-4 transition-colors hover:bg-[var(--pf-bg-dark)]"
     >
-      <div className="flex items-center gap-2 mb-1">
-        <span
-          className="text-[9px] font-bold uppercase tracking-[0.08em] px-1.5 py-0.5 rounded"
-          style={{
-            backgroundColor: 'var(--ws-bg-elevated)',
-            color: 'var(--ws-text-tertiary)',
-          }}
-        >
-          {isPlaceholder ? 'Ad slot' : 'Sponsored'}
-        </span>
-        <span
-          className="text-[12px] font-semibold truncate"
-          style={{ color: 'var(--ws-text-primary)' }}
-        >
-          {sponsor.name}
-        </span>
-      </div>
-      <p
-        className="text-[11px] leading-snug"
-        style={{ color: 'var(--ws-text-secondary)' }}
-      >
-        {sponsor.pitch}
-      </p>
+      <span className="text-[13px] text-[var(--pf-text-tertiary)]">Sponsor</span>
+      <span className="mt-1 block text-[15px] font-semibold">{SPONSOR.name}</span>
+      <span className="mt-0.5 block text-[14px] text-[var(--pf-text-secondary)]">{SPONSOR.pitch}</span>
     </a>
   );
 }

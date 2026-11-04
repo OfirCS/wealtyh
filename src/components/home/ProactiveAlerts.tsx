@@ -112,7 +112,7 @@ export default function ProactiveAlerts({ profile, customFunds, onAlertTap }: Pr
 
   return (
     <div className="w-full">
-      <p className="text-[11px] font-semibold text-[var(--ws-text-tertiary)] uppercase tracking-wider mb-3 px-1">
+      <p className="text-[11px] font-semibold text-[var(--pf-text-tertiary)] uppercase tracking-wider mb-3 px-1">
         Pathfinder noticed
       </p>
       <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
@@ -120,14 +120,14 @@ export default function ProactiveAlerts({ profile, customFunds, onAlertTap }: Pr
           <motion.button
             key={alert.prompt}
             onClick={() => onAlertTap(alert.prompt)}
-            className="w-full flex items-center gap-3 px-4 py-3 bg-[var(--ws-bg-surface)] border border-[var(--ws-border)] rounded-[14px] text-left cursor-pointer hover:bg-[var(--ws-bg-primary)] transition-colors group min-h-[64px]"
+            className="w-full flex items-center gap-3 px-4 py-3 bg-[var(--pf-bg-surface)] border border-[var(--pf-border)] rounded-[14px] text-left cursor-pointer hover:bg-[var(--pf-bg-primary)] transition-colors group min-h-[64px]"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ type: "spring", bounce: 0, duration: 0.5, delay: 0.1 * i }}
           >
             <span className="text-[18px] flex-shrink-0">{alert.icon}</span>
-            <p className="flex-1 text-[13px] text-[var(--ws-text-secondary)] leading-snug min-w-0">
-              <span className="text-[var(--ws-text-primary)] font-semibold">{alert.highlight}</span>
+            <p className="flex-1 text-[13px] text-[var(--pf-text-secondary)] leading-snug min-w-0">
+              <span className="text-[var(--pf-text-primary)] font-semibold">{alert.highlight}</span>
               {alert.label}
             </p>
             <svg
@@ -135,7 +135,7 @@ export default function ProactiveAlerts({ profile, customFunds, onAlertTap }: Pr
               height="14"
               viewBox="0 0 24 24"
               fill="none"
-              className="flex-shrink-0 text-[var(--ws-text-tertiary)] group-hover:text-[var(--ws-text-secondary)] transition-colors"
+              className="flex-shrink-0 text-[var(--pf-text-tertiary)] group-hover:text-[var(--pf-text-secondary)] transition-colors"
             >
               <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>

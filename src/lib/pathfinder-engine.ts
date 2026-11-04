@@ -715,7 +715,9 @@ function buildRouterPrompt(
   const rules = getCanadianRuleSet();
   const customFundNames = customFunds.map(f => f.name).join(', ') || 'none';
 
-  return `You are a financial planning router. You receive a user's full financial context and a life event. Decide whether CURRENT internet data would materially change the recommended dollar amounts or strategy.
+  return `Today is ${new Date().toISOString().slice(0, 10)}. Any search queries must ask for current information, never a past year.
+
+You are a financial planning router. You receive a user's full financial context and a life event. Decide whether CURRENT internet data would materially change the recommended dollar amounts or strategy.
 
 ## CRITICAL: Understand Intent Before Searching
 Read the life event CAREFULLY. Detect whether the user is:
@@ -753,7 +755,7 @@ When in doubt: search. Cost is 1-2s latency; stale data leads to wrong dollar am
 - Income: $${profile.annualIncome}/yr, Partner: $${profile.partnerIncome}/yr
 - Province: ${profile.province}, Employment: ${profile.employmentType}
 - Liquid: $${m.liquidAssets}, Invested: $${m.investedAssets}, Net worth: $${Math.round(m.totalNetWorth)}
-- Surplus: $${Math.round(m.monthlySurplus)}/mo (${m.savingsRate}% savings rate)
+- Surplus after tax: $${Math.round(m.monthlySurplus)}/mo (${m.savingsRate}% savings rate)
 - Emergency fund: ${m.emergencyFundMonths} months
 - TFSA deposit room (contribution space, NOT balance): $${profile.tfsaRoom}, RRSP deposit room: $${profile.rrspRoom}
 - FHSA balance: $${profile.fhsaBalance}${m.isFirstTimeBuyer ? ' (first-time buyer)' : ''}
@@ -814,18 +816,76 @@ export interface SearchResult {
   metadata: SearchMetadata;
 }
 
-/** Search always uses Gemini (for Google grounding / web search tool) */
+function researchPrompt(queries: string[]): string {
+  return `Today is ${new Date().toISOString().slice(0, 10)}. Research the following topics for someone in Canada and provide a concise factual summary for each. Use the most current figures you can find, and include specific numbers, dates, and sources where possible. Keep each topic to 2-3 sentences.
+
+Topics:
+- ${queries.join('\n- ')}`;
+}
+
+// Enough rounds for a paused search to finish without looping forever
+const MAX_SEARCH_ROUNDS = 3;
+
+/** Live search with Claude's web search tool, on the same key as the plan. */
+async function searchWithClaude(queries: string[]): Promise<SearchResult> {
+  const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: 'user', content: researchPrompt(queries) }];
+  const tools: Anthropic.Beta.BetaToolUnion[] = [{ type: 'web_search_20260209', name: 'web_search', max_uses: 3 }];
+  const sources: SearchSource[] = [];
+  const searchQueries: string[] = [];
+  let text = '';
+
+  for (let round = 0; round < MAX_SEARCH_ROUNDS; round++) {
+    const request = {
+      model: 'claude-opus-5-5',
+      max_tokens: 8000,
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+      output_config: { effort: 'low' },
+      tools,
+      messages,
+    };
+    const response = await claude.beta.messages.create(
+      request as unknown as Anthropic.Beta.MessageCreateParamsNonStreaming,
+    );
+
+    for (const block of response.content) {
+      if (block.type === 'text') {
+        text += block.text;
+      } else if (block.type === 'server_tool_use' && block.name === 'web_search') {
+        const query = (block.input as { query?: unknown }).query;
+        if (typeof query === 'string') searchQueries.push(query);
+      } else if (block.type === 'web_search_tool_result' && Array.isArray(block.content)) {
+        for (const item of block.content) {
+          if (item.type === 'web_search_result') sources.push({ title: item.title, url: item.url });
+        }
+      }
+    }
+
+    if (response.stop_reason !== 'pause_turn') break;
+    messages.push({ role: 'assistant', content: response.content });
+  }
+
+  if (!text) throw new Error('Web search returned nothing');
+
+  const unique = [...new Map(sources.map((source) => [source.url, source])).values()];
+  return { text, metadata: { queries: searchQueries, sources: unique.slice(0, 8) } };
+}
+
+/** Uses Google grounding when a Google key is set, otherwise Claude's web search. */
 export async function searchForContext(
   queries: string[],
 ): Promise<SearchResult> {
-  const geminiKey = process.env.GOOGLE_API_KEY;
-  if (!geminiKey) throw new Error('GOOGLE_API_KEY required for web search');
-  const ai = new GoogleGenAI({ apiKey: geminiKey });
-  const combined = queries.join('\n- ');
-  const prompt = `Research the following topics and provide a concise factual summary for each. Include specific numbers, dates, and sources where possible. Keep each topic to 2-3 sentences.
+  if (process.env.GOOGLE_API_KEY) return searchWithGoogle(queries);
+  if (process.env.ANTHROPIC_API_KEY) return searchWithClaude(queries);
+  throw new Error('No AI key available for web search');
+}
 
-Topics:
-- ${combined}`;
+async function searchWithGoogle(
+  queries: string[],
+): Promise<SearchResult> {
+  const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
+  const prompt = researchPrompt(queries);
 
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash-lite',
@@ -939,7 +999,10 @@ export async function generateThinkingPreview(
     maxTokens: 2048,
   });
   try {
-    const cleaned = stripMarkdownFences(text);
+    // The model sometimes adds a line around the JSON, so take just the array
+    const start = text.indexOf('[');
+    const end = text.lastIndexOf(']');
+    const cleaned = start >= 0 && end > start ? text.slice(start, end + 1) : stripMarkdownFences(text);
     const parsed = JSON.parse(cleaned);
     let steps: ThinkingStep[];
     if (Array.isArray(parsed)) {

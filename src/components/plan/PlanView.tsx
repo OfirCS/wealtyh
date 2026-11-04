@@ -1,15 +1,17 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import type { PathfinderResult, QuickAction, RiskWarning, SearchMetadata, ThinkingStep, DebugLog, FinancialProfile, CustomFund } from "@/lib/types";
+import { useCallback, useMemo, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import type { CashflowPoint, CustomFund, DebugLog, FinancialProfile, PathfinderResult, QuickAction, SearchMetadata } from "@/lib/types";
+import { formatMoney } from "@/lib/money";
 import { playSound } from "@/lib/sounds";
-import { IS_STATIC_DEMO } from "@/lib/claude";
-import ImpactSummary from "./ImpactSummary";
+import { IS_STATIC_DEMO, NO_AI_KEYS } from "@/lib/claude";
+import { useElementHeight } from "@/lib/use-element-height";
 import AccountImpactCards from "./AccountImpactCards";
-import CashflowCard from "./CashflowSidebar";
-import ConfirmationSheet from "@/components/ui/ConfirmationSheet";
+import MoneyStages from "./MoneyStages";
 import WhatIfInput from "./WhatIfInput";
+import Sheet from "@/components/ui/Sheet";
+import SponsorSlot from "@/components/ui/SponsorSlot";
 
 interface PlanViewProps {
   result: PathfinderResult;
@@ -18,33 +20,15 @@ interface PlanViewProps {
   customFunds: CustomFund[];
   searchMetadata: SearchMetadata | null;
   debugLog: DebugLog | null;
+  shareLabel: string;
+  onShare: () => void;
   onReset: () => void;
   onApplyActions: (confirmedIndices: number[], actions: QuickAction[]) => void;
 }
 
-const ACTION_ICONS: Record<QuickAction["type"], string> = {
-  move: "\u2197",
-  create_fund: "\u25CE",
-  automate: "\u21BB",
-  open_account: "+",
-  pause: "\u2161",
-  adjust: "\u2736",
-  pay_off: "\u2713",
-};
+type DetailTab = "numbers" | "moves" | "watch" | "pro" | "how";
 
-const PRIORITY_COLORS: Record<QuickAction["priority"], string> = {
-  do_now: "#FCFCFC",
-  this_week: "#3A3938",
-  this_month: "#2D2D2C",
-  next_quarter: "#2D2D2C",
-};
-
-const PRIORITY_TEXT_COLORS: Record<QuickAction["priority"], string> = {
-  do_now: "var(--ws-text-inverse)",
-  this_week: "var(--ws-text-inverse)",
-  this_month: "var(--ws-text-inverse)",
-  next_quarter: "var(--ws-text-tertiary)",
-};
+const PRIORITY_ORDER: QuickAction["priority"][] = ["do_now", "this_week", "this_month", "next_quarter"];
 
 const PRIORITY_LABELS: Record<QuickAction["priority"], string> = {
   do_now: "Now",
@@ -53,1003 +37,370 @@ const PRIORITY_LABELS: Record<QuickAction["priority"], string> = {
   next_quarter: "Later",
 };
 
-const IMPACT_TONE_COLORS = {
-  positive: "var(--ws-accent-green)",
-  negative: "var(--ws-accent-red)",
-  neutral: "var(--ws-text-primary)",
-} as const;
+/** Each step takes exactly this much height, so the list can page instead of scroll. */
+const STEP_HEIGHT = 104;
 
-function ActionCard({
-  action,
-  index,
-  onTap,
-}: {
-  action: QuickAction;
-  index: number;
-  onTap: () => void;
-}) {
-  return (
-    <motion.button
-      className={`group w-full flex items-start gap-3 sm:gap-4 text-left cursor-pointer transition-all p-3 -mx-3 rounded-[16px] ${action.priority === 'do_now'
-        ? 'bg-[var(--ws-bg-primary)] border border-[var(--ws-accent-green)]/30 shadow-[0_4px_24px_rgba(72,102,53,0.12)]'
-        : 'bg-transparent hover:bg-[var(--ws-bg-primary)] border border-transparent'
-        }`}
-      initial={{ opacity: 0, x: -15 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ type: "spring", bounce: 0, duration: 0.6, delay: 0.05 * index }}
-      onClick={onTap}
-    >
-      {/* Icon */}
-      <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center flex-shrink-0 text-[16px] sm:text-[18px] bg-[var(--ws-bg-primary)] text-[var(--ws-text-primary)] border border-[var(--ws-border)]">
-        {ACTION_ICONS[action.type]}
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 min-w-0 pt-0.5 pb-1">
-        <p className="font-serif text-[16px] sm:text-[18px] text-[var(--ws-text-primary)] leading-tight tracking-tight mt-0.5 group-hover:text-[var(--ws-text-secondary)] transition-colors">
-          {action.title}
-        </p>
-
-        <div className="flex flex-col gap-1.5 mt-2">
-          {/* Account Details */}
-          {(action.from_account || action.to_account) && (
-            <div className="flex flex-wrap items-center gap-1.5 text-[12px] font-medium text-[var(--ws-text-primary)]">
-              {action.from_account && (
-                <span className="px-2 py-0.5 rounded-md bg-[var(--ws-bg-surface)] border border-[var(--ws-border)]">
-                  {action.from_account}
-                </span>
-              )}
-              {action.from_account && action.to_account && (
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="text-[var(--ws-text-tertiary)] shrink-0">
-                  <path d="M5 12H19M19 12L13 6M19 12L13 18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              )}
-              {action.to_account && (
-                <span className="px-2 py-0.5 rounded-md bg-[var(--ws-bg-surface)] border border-[var(--ws-border)]">
-                  {action.to_account}
-                </span>
-              )}
-              {typeof action.amount === 'number' && action.amount > 0 && (
-                <span className="ml-1 text-[var(--ws-accent-green)] font-semibold">
-                  ${action.amount.toLocaleString("en-CA")}
-                </span>
-              )}
-            </div>
-          )}
-
-          {action.why && (
-            <p className="text-[13px] text-[var(--ws-text-secondary)] leading-snug">
-              {action.why}
-            </p>
-          )}
-
-          {action.automation && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[10px] font-bold px-2 py-0.5 bg-[var(--ws-text-primary)] rounded-md text-[var(--ws-bg-primary)] capitalize tracking-wide">
-                Auto &middot; {action.automation.frequency}
-              </span>
-              {action.automation.duration_months ? (
-                <span className="text-[11px] font-medium text-[var(--ws-text-tertiary)]">
-                  {action.automation.duration_months}mo
-                </span>
-              ) : null}
-              {action.automation.target_amount ? (
-                <span className="text-[11px] font-bold text-[var(--ws-text-primary)]">
-                  Target: ${action.automation.target_amount.toLocaleString()}
-                </span>
-              ) : null}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Priority badge */}
-      <div
-        className="flex-shrink-0 mt-0.5 px-2.5 py-1 rounded-full text-[10px] sm:text-[11px] font-semibold leading-none min-w-[50px] sm:min-w-[60px] text-center"
-        style={{
-          backgroundColor: PRIORITY_COLORS[action.priority],
-          color: PRIORITY_TEXT_COLORS[action.priority],
-        }}
-      >
-        {PRIORITY_LABELS[action.priority]}
-      </div>
-    </motion.button>
-  );
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-function RiskBanner({
-  warning,
-  index,
-}: {
-  warning: RiskWarning;
-  index: number;
-}) {
-  return (
-    <motion.div
-      className="flex items-center gap-2"
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ type: "spring", bounce: 0, duration: 0.6, delay: 0.2 + index * 0.05 }}
-    >
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 16 16"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        className="flex-shrink-0 text-[var(--ws-accent-red)]"
-      >
-        <path d="M8 1.5L14.5 13.5H1.5L8 1.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-        <path d="M8 6.5V9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        <circle cx="8" cy="11.5" r="1.0" fill="currentColor" />
-      </svg>
-      <p className="text-[var(--ws-text-secondary)] text-[12px] sm:text-[13px]">
-        {warning.text}
-      </p>
-    </motion.div>
-  );
+/** The one sentence someone came here for: can I afford this? */
+function plainAnswer(cashflow: CashflowPoint[]): string {
+  if (cashflow.length === 0) return "Here's what I'd do.";
+  const first = cashflow[0].amount;
+  const lowest = Math.min(...cashflow.map((point) => point.amount));
+  if (first < 0) return "You're already spending more than you bring home.";
+  if (lowest < 0) return `You'd run about ${formatMoney(-lowest)} a month short for a while.`;
+  if (lowest <= first * 0.3) return "You can afford this, but money gets tight for a while.";
+  return "Good news. You can comfortably afford this.";
 }
 
-function AdvisorNote({
-  flag,
-  index,
-}: {
-  flag: { title: string; explanation: string; urgency: string };
-  index: number;
-}) {
+function Detail({ label, value }: { label: string; value: string }) {
   return (
-    <motion.div
-      className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[var(--ws-bg-surface)] rounded-[16px] p-4 sm:px-5 sm:py-4 border border-[var(--ws-border)]"
-      initial={{ opacity: 0, y: 15 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ type: "spring", bounce: 0, duration: 0.6, delay: 0.35 + index * 0.1 }}
-    >
-      <div className="flex flex-col gap-1">
-        <p className="text-[var(--ws-text-tertiary)] uppercase text-[10px] tracking-wider font-semibold">
-          Advisor &middot; {flag.urgency}
-        </p>
-        <p className="font-serif text-[18px] text-[var(--ws-text-primary)] leading-tight tracking-tight">
-          {flag.title}
-        </p>
-      </div>
-      <button className="text-[var(--ws-text-primary)] text-[13px] font-medium cursor-pointer flex items-center justify-center gap-1.5 px-4 py-2 rounded-full border border-[var(--ws-border)] hover:bg-[var(--ws-bg-primary)] transition-all flex-shrink-0">
-        Book call
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-          <path d="M5 12H19M19 12L12 5M19 12L12 19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
-    </motion.div>
-  );
-}
-
-function AnalysisSection({ steps }: { steps: ThinkingStep[] }) {
-  if (!steps || steps.length === 0) return null;
-
-  return (
-    <motion.div
-      className="mb-6"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.5, delay: 0.2 }}
-    >
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <p className="text-[11px] font-semibold text-[var(--ws-text-tertiary)] uppercase tracking-wider">
-          Analysis
-        </p>
-        <span className="text-[11px] font-medium text-[var(--ws-text-secondary)]">
-          {steps.length} signal{steps.length === 1 ? "" : "s"}
-        </span>
-      </div>
-      <div className="grid gap-3">
-        {steps.map((step, i) => {
-          const firstInsight = step.insights?.[0] ?? { type: "neutral", text: "" };
-          const sentimentColor = firstInsight.type === 'positive'
-            ? 'var(--ws-accent-green)'
-            : firstInsight.type === 'negative'
-              ? 'var(--ws-accent-red)'
-              : 'var(--ws-text-secondary)';
-
-          return (
-            <motion.div
-              key={i}
-              className="rounded-[18px] border p-4 bg-[var(--ws-bg-surface)]"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ type: "spring", bounce: 0, duration: 0.4, delay: 0.05 * i }}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[15px] font-semibold text-[var(--ws-text-primary)] leading-tight">
-                    {step.title}
-                  </p>
-                  <p className="mt-1 text-[12px] font-medium" style={{ color: sentimentColor }}>
-                    {firstInsight.type === "positive" ? "Opportunity" : firstInsight.type === "negative" ? "Risk" : "Context"}
-                  </p>
-                </div>
-                <span
-                  className="w-2.5 h-2.5 rounded-full flex-shrink-0 mt-1"
-                  style={{ backgroundColor: sentimentColor }}
-                />
-              </div>
-
-              <div className="mt-3 flex flex-col gap-2">
-                {(step.insights ?? []).slice(0, 2).map((insight, insightIndex) => (
-                  <p
-                    key={`${step.title}-${insightIndex}`}
-                    className="text-[13px] leading-relaxed"
-                    style={{ color: insight.type === "neutral" ? "var(--ws-text-secondary)" : IMPACT_TONE_COLORS[insight.type] }}
-                  >
-                    {insight.text}
-                  </p>
-                ))}
-              </div>
-            </motion.div>
-          );
-        })}
-      </div>
-    </motion.div>
-  );
-}
-
-function SearchSourcesBanner({ metadata }: { metadata: SearchMetadata }) {
-  const [expanded, setExpanded] = useState(false);
-
-  if (!metadata.sources.length && !metadata.queries.length) return null;
-
-  return (
-    <motion.div
-      className="w-full flex flex-col gap-2"
-      initial={{ opacity: 0, y: 15 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ type: "spring", bounce: 0, duration: 0.6, delay: 0.1 }}
-    >
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-fit flex items-center justify-between gap-3 bg-[var(--ws-bg-surface)] border border-[var(--ws-border)] rounded-full px-3 py-1.5 hover:bg-[var(--ws-bg-primary)] transition-colors cursor-pointer"
-      >
-        <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded-full bg-[var(--ws-bg-primary)] border border-[var(--ws-border)] flex items-center justify-center text-[var(--ws-text-primary)]">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
-              <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2.5" />
-              <path d="M21 21L16.65 16.65" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-            </svg>
-          </div>
-          <p className="text-[12px] font-medium text-[var(--ws-text-secondary)]">
-            {metadata.sources.length} sources
-          </p>
-        </div>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className={`text-[var(--ws-text-tertiary)] transition-transform duration-300 ${expanded ? "rotate-180" : ""}`}>
-          <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
-
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
-            <div className="bg-[var(--ws-bg-surface)] border border-[var(--ws-border)] rounded-[16px] p-4 mt-1 flex flex-col gap-4">
-              {metadata.queries.length > 0 && (
-                <div>
-                  <p className="text-[10px] text-[var(--ws-text-tertiary)] uppercase tracking-wider font-semibold mb-2">
-                    Queries
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {metadata.queries.map((q, i) => (
-                      <span key={i} className="text-[12px] text-[var(--ws-text-primary)] bg-[var(--ws-bg-primary)] border border-[var(--ws-border)] px-2.5 py-1 rounded-full">
-                        {q}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {metadata.sources.length > 0 && (
-                <div className={metadata.queries.length > 0 ? "pt-3 border-t border-[var(--ws-border)]" : ""}>
-                  <p className="text-[10px] text-[var(--ws-text-tertiary)] uppercase tracking-wider font-semibold mb-2">
-                    Sources
-                  </p>
-                  <div className="flex flex-col gap-2">
-                    {metadata.sources.map((s, i) => {
-                      let domain = "";
-                      try {
-                        const hostname = new URL(s.url).hostname.replace("www.", "");
-                        // Don't show vertex redirect hostnames — use title or generic label
-                        domain = hostname.includes("vertexaisearch.cloud.google.com") ? "" : hostname;
-                      } catch {
-                        domain = "";
-                      }
-                      return (
-                        <a
-                          key={i}
-                          href={s.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[13px] text-[var(--ws-text-secondary)] hover:text-[var(--ws-text-primary)] transition-colors truncate flex items-center gap-1.5"
-                        >
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="flex-shrink-0">
-                            <path d="M5 1H2C1.44772 1 1 1.44772 1 2V10C1 10.5523 1.44772 11 2 11H10C10.5523 11 11 10.5523 11 10V7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                            <path d="M7 1H11V5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                            <path d="M11 1L6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                          </svg>
-                          {s.title || domain || "Web Source"}
-                        </a>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
-  );
-}
-
-/**
- * The recruiter-facing money shot: a clean, always-visible trace of how the
- * agentic pipeline reasoned — router decision + reasoning, live sources, and
- * exactly which drafted actions the deterministic guardrails capped or removed.
- */
-function ReasoningTrace({ log, searchMetadata }: { log: DebugLog; searchMetadata: SearchMetadata | null }) {
-  const [expanded, setExpanded] = useState(true);
-  const router = log.entries.find((e) => e.step === 'Router');
-  const search = log.entries.find((e) => e.step === 'Search');
-  const sources = searchMetadata?.sources ?? [];
-  const removed = log.removedActions;
-
-  const summary = `${search ? `searched ${sources.length} source${sources.length === 1 ? '' : 's'}` : 'no web search needed'} · drafted ${log.actionsBeforeGuardrails} → kept ${log.actionsAfterGuardrails}`;
-
-  return (
-    <motion.div
-      className="mb-5 rounded-[20px] border border-[var(--ws-border)] bg-[var(--ws-bg-surface)] overflow-hidden"
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35 }}
-    >
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-start justify-between gap-3 px-4 sm:px-5 py-3.5 text-left cursor-pointer"
-      >
-        <div className="flex items-start gap-3 min-w-0">
-          <span className="mt-0.5 w-6 h-6 rounded-full bg-[var(--ws-accent-green)]/12 flex items-center justify-center shrink-0">
-            <span className="w-2 h-2 rounded-full bg-[var(--ws-accent-green)]" />
-          </span>
-          <div className="min-w-0">
-            <p className="text-[14px] font-semibold text-[var(--ws-text-primary)] leading-tight">How Pathfinder reasoned</p>
-            <p className="text-[12px] text-[var(--ws-text-secondary)] mt-0.5 truncate">{summary}</p>
-          </div>
-        </div>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className={`text-[var(--ws-text-tertiary)] shrink-0 mt-1 transition-transform duration-300 ${expanded ? 'rotate-180' : ''}`}>
-          <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
-
-      <AnimatePresence initial={false}>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.22 }}
-            className="overflow-hidden"
-          >
-            <div className="px-4 sm:px-5 pb-4 pt-1 flex flex-col gap-3">
-              <p className="text-[12px] text-[var(--ws-text-tertiary)] leading-relaxed">
-                The model proposes; deterministic guardrails check every dollar against your real balances.
-              </p>
-
-              <TraceStep n={1} title={search ? 'Routed → search' : 'Routed'} body={router?.detail}>
-                {router?.data && (
-                  <p className="text-[12px] italic text-[var(--ws-text-secondary)] leading-relaxed">&ldquo;{router.data}&rdquo;</p>
-                )}
-              </TraceStep>
-
-              {search && (
-                <TraceStep n={2} title="Pulled live data" body={search.detail}>
-                  {sources.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-0.5">
-                      {sources.slice(0, 5).map((s, i) => {
-                        let label = s.title || '';
-                        if (!label) { try { label = new URL(s.url).hostname.replace('www.', ''); } catch { label = 'Source'; } }
-                        return (
-                          <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-[var(--ws-text-secondary)] hover:text-[var(--ws-text-primary)] bg-[var(--ws-bg-primary)] border border-[var(--ws-border)] px-2 py-0.5 rounded-full truncate max-w-[180px]">
-                            {label}
-                          </a>
-                        );
-                      })}
-                    </div>
-                  )}
-                </TraceStep>
-              )}
-
-              <TraceStep n={search ? 3 : 2} title="Drafted a plan" body={`${log.actionsBeforeGuardrails} actions proposed by the model`} />
-
-              <TraceStep
-                n={search ? 4 : 3}
-                title="Checked every number"
-                body={`Kept ${log.actionsAfterGuardrails} of ${log.actionsBeforeGuardrails}${removed.length ? ` · removed ${removed.length}` : ' · all valid'}`}
-              >
-                {removed.length > 0 && (
-                  <div className="flex flex-col gap-1 mt-0.5">
-                    {removed.map((r, i) => (
-                      <div key={i} className="flex items-start gap-1.5">
-                        <span className="mt-[6px] w-1.5 h-1.5 rounded-full bg-[var(--ws-accent-red)] shrink-0" />
-                        <p className="text-[12px] text-[var(--ws-text-secondary)] leading-snug">{r}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </TraceStep>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
-  );
-}
-
-function TraceStep({ n, title, body, children }: { n: number; title: string; body?: string; children?: React.ReactNode }) {
-  return (
-    <div className="flex items-start gap-3">
-      <span className="mt-0.5 w-5 h-5 rounded-full bg-[var(--ws-bg-primary)] border border-[var(--ws-border)] flex items-center justify-center text-[10px] font-bold text-[var(--ws-text-secondary)] shrink-0">
-        {n}
-      </span>
-      <div className="min-w-0 flex flex-col gap-1">
-        <p className="text-[13px] font-semibold text-[var(--ws-text-primary)] leading-tight">{title}</p>
-        {body && <p className="text-[12px] text-[var(--ws-text-secondary)] leading-snug">{body}</p>}
-        {children}
-      </div>
+    <div className="flex items-baseline justify-between gap-4 border-b border-[var(--pf-border)] py-2.5 text-[16px]">
+      <dt className="text-[var(--pf-text-secondary)]">{label}</dt>
+      <dd className="text-right">{value}</dd>
     </div>
   );
 }
 
-const TAB_ORDER = { actions: 0, impacts: 1, cashflow: 2 } as const;
+function WorkLog({ log, searchMetadata }: { log: DebugLog; searchMetadata: SearchMetadata | null }) {
+  const router = log.entries.find((entry) => entry.step === "Router");
+  const search = log.entries.find((entry) => entry.step === "Search");
+  const sources = searchMetadata?.sources ?? [];
+  const removed = log.removedActions;
 
-const PRIORITY_ORDER: QuickAction['priority'][] = ['do_now', 'this_week', 'this_month', 'next_quarter'];
-const PRIORITY_STEP_LABELS: Record<string, string> = {
-  do_now: 'Do Now',
-  this_week: 'This Week',
-  this_month: 'This Month',
-  next_quarter: 'Later',
-};
+  const rows = [
+    { title: "Read your situation", body: router?.data },
+    ...(search ? [{ title: sources.length > 0 ? `Checked ${sources.length} live sources` : "Tried to reach live data", body: sources.length > 0 ? undefined : search.detail }] : []),
+    { title: "Drafted a plan", body: `${log.actionsBeforeGuardrails} steps proposed` },
+    { title: "Checked every dollar", body: `${log.actionsAfterGuardrails} of ${log.actionsBeforeGuardrails} fit your real balances` },
+  ];
 
-function AnalysisDetailsSheet({
-  result,
-  event,
-  onClose,
-}: {
-  result: PathfinderResult;
-  event: string;
-  onClose: () => void;
-}) {
   return (
-    <motion.div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.2 }}
-    >
-      <motion.div
-        className="absolute inset-0 bg-black/40"
-        onClick={onClose}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-      />
-      <motion.div
-        className="relative w-full max-w-[500px] bg-[var(--ws-bg-surface)] rounded-[24px] shadow-2xl overflow-hidden max-h-[85vh] flex flex-col"
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        transition={{ type: "spring", damping: 28, stiffness: 300 }}
-      >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--ws-border)] bg-[var(--ws-bg-primary)]">
-          <h3 className="text-[18px] font-bold text-[var(--ws-text-primary)]">Details</h3>
-          <button onClick={onClose} className="text-[var(--ws-text-tertiary)] hover:text-[var(--ws-text-primary)] transition-colors p-1 cursor-pointer" title="Close">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-              <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="px-6 py-6 overflow-y-auto flex flex-col gap-8">
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-8 h-8 rounded-full bg-[var(--ws-bg-primary)] border border-[var(--ws-border)] flex items-center justify-center text-[var(--ws-text-primary)] shadow-sm">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" stroke="currentColor" strokeWidth="1.5" />
-                  <circle cx="12" cy="12" r="4" fill="currentColor" fillOpacity="0.2" stroke="currentColor" strokeWidth="1.5" />
-                  <path d="M12 8v8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>
-              </div>
-              <h4 className="text-[16px] font-semibold text-[var(--ws-text-primary)]">Summary</h4>
-            </div>
-            <p className="text-[14px] leading-relaxed text-[var(--ws-text-secondary)]">
-              {(() => {
-                const steps = result.thinking_steps.length;
-                const actions = result.quick_actions.length;
-                const doNow = result.quick_actions.filter(a => a.priority === 'do_now').length;
-                const hasRisks = result.risk_warnings.length > 0;
-                const hasAdvisor = result.advisor_flags.length > 0;
-                const nw = result.impact_summary.net_worth_change;
-                const nwDir = nw.value.startsWith('+') || nw.value.startsWith('$') ? 'grow' : nw.value.startsWith('-') ? 'protect' : 'optimize';
-
-                const parts: string[] = [];
-                parts.push(`Analyzed ${steps} area${steps !== 1 ? 's' : ''} for "${event}".`);
-
-                if (actions === 1) {
-                  parts.push(`1 action${doNow === 1 ? ' — do now' : ''}.`);
-                } else {
-                  parts.push(`${actions} actions to ${nwDir}${doNow > 0 ? `, ${doNow} urgent` : ''}.`);
-                }
-
-                if (hasRisks && hasAdvisor) {
-                  parts.push(`${result.risk_warnings.length} risk${result.risk_warnings.length !== 1 ? 's' : ''}, ${result.advisor_flags.length} advisor flag${result.advisor_flags.length !== 1 ? 's' : ''}.`);
-                } else if (hasRisks) {
-                  parts.push(`${result.risk_warnings.length} risk${result.risk_warnings.length !== 1 ? 's' : ''} flagged.`);
-                } else if (hasAdvisor) {
-                  parts.push(`${result.advisor_flags.length} advisor topic${result.advisor_flags.length !== 1 ? 's' : ''}.`);
-                }
-
-                return parts.join(' ');
-              })()}
-            </p>
-          </div>
-
-          <AnalysisSection steps={result.thinking_steps} />
-
-          {result.risk_warnings.length > 0 && (
-            <div className="flex flex-col gap-3">
-              <p className="text-[11px] text-[var(--ws-text-tertiary)] uppercase tracking-wider font-semibold">
-                Risks
-              </p>
-              {result.risk_warnings.map((w, i) => (
-                <RiskBanner key={i} warning={w} index={i} />
-              ))}
-            </div>
-          )}
-
-        </div>
-      </motion.div>
-    </motion.div>
+    <div className="flex flex-col gap-3">
+      <ol className="flex flex-col gap-3">
+        {rows.map((row) => (
+          <li key={row.title}>
+            <p className="text-[16px] font-medium">{row.title}</p>
+            {row.body && <p className="text-[15px] leading-snug text-[var(--pf-text-secondary)]">{row.body}</p>}
+          </li>
+        ))}
+      </ol>
+      {removed.length > 0 && (
+        <ul className="flex flex-col gap-1">
+          {removed.map((item) => <li key={item} className="text-[14px] text-[var(--pf-text-secondary)]">Removed: {item}</li>)}
+        </ul>
+      )}
+      {sources.length > 0 && (
+        <ul className="flex flex-col gap-1 border-t border-[var(--pf-border)] pt-3">
+          {sources.map((source) => (
+            <li key={source.url} className="truncate text-[14px]">
+              <a href={source.url} target="_blank" rel="noopener noreferrer" className="pf-link underline decoration-current">
+                {source.title || source.url}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
-export default function PlanView({ result, event, profile, customFunds, searchMetadata, debugLog, onReset, onApplyActions }: PlanViewProps) {
-  const [activeTab, setActiveTab] = useState<"actions" | "impacts" | "cashflow">("actions");
-  const [tabDirection, setTabDirection] = useState(1);
-  const [selectedAction, setSelectedAction] = useState<QuickAction | null>(null);
-  const [confirmedActions, setConfirmedActions] = useState<Set<number>>(new Set());
-  const [currentResult, setCurrentResult] = useState<PathfinderResult>(result);
+export default function PlanView({
+  result,
+  event,
+  profile,
+  customFunds,
+  searchMetadata,
+  debugLog,
+  shareLabel,
+  onShare,
+  onReset,
+  onApplyActions,
+}: PlanViewProps) {
+  const [added, setAdded] = useState<ReadonlySet<number>>(new Set());
+  const [current, setCurrent] = useState<PathfinderResult>(result);
   const [isRefining, setIsRefining] = useState(false);
-  const [refinementHistory, setRefinementHistory] = useState<string[]>([]);
-  const [showAnalysisDetails, setShowAnalysisDetails] = useState(false);
-  const planLead = currentResult.thinking_steps[0]?.insights?.[0]?.text ?? "Pathfinder organized your next best moves from the current snapshot.";
-  const overviewCards = [
-    {
-      label: "Net worth effect",
-      value: currentResult.impact_summary.net_worth_change.value,
-      detail: currentResult.impact_summary.net_worth_change.label,
-      tone: currentResult.impact_summary.net_worth_change.type,
-    },
-    {
-      label: "Income effect",
-      value: currentResult.impact_summary.income_change.value,
-      detail: currentResult.impact_summary.income_change.label,
-      tone: currentResult.impact_summary.income_change.type,
-    },
-    {
-      label: "Expense effect",
-      value: currentResult.impact_summary.expense_change.value,
-      detail: currentResult.impact_summary.expense_change.label,
-      tone: currentResult.impact_summary.expense_change.type,
-    },
-    {
-      label: "Timeline",
-      value: currentResult.impact_summary.timeline.value,
-      detail: `${currentResult.quick_actions.length} action${currentResult.quick_actions.length === 1 ? "" : "s"} planned`,
-      tone: "neutral" as const,
-    },
-  ];
+  const [refineNote, setRefineNote] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const [openStep, setOpenStep] = useState<number | null>(null);
+  const [changing, setChanging] = useState(false);
+  const [detailTab, setDetailTab] = useState<DetailTab | null>(null);
+  const [listRef, listHeight] = useElementHeight<HTMLOListElement>();
+
+  const isLocal = current.source === "local";
+  const sourceCount = searchMetadata?.sources.length ?? 0;
+
+  const actions = useMemo(
+    () => [...current.quick_actions].sort((a, b) => PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority)),
+    [current],
+  );
+
+  const perPage = Math.max(1, Math.floor(listHeight / STEP_HEIGHT));
+  const pages = Math.max(1, Math.ceil(actions.length / perPage));
+  const currentPage = Math.min(page, pages - 1);
+  const visible = actions
+    .map((action, index) => ({ action, index }))
+    .slice(currentPage * perPage, (currentPage + 1) * perPage);
+
+  const toggle = (index: number) => {
+    setAdded((previous) => {
+      const next = new Set(previous);
+      if (next.has(index)) {
+        next.delete(index);
+        playSound("tap");
+      } else {
+        next.add(index);
+        playSound("success");
+      }
+      return next;
+    });
+  };
 
   const handleRefine = useCallback(async (adjustment: string) => {
     setIsRefining(true);
+    setRefineNote(null);
+
+    const replacePlan = (next: PathfinderResult) => {
+      playSound("complete");
+      setCurrent(next);
+      setAdded(new Set());
+      setPage(0);
+      setChanging(false);
+    };
+
+    const planLocally = async () => {
+      const { buildLocalPlan } = await import("@/lib/local-plan");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const next = buildLocalPlan(profile, customFunds, `${event}. ${adjustment}`);
+      if (JSON.stringify(next) === JSON.stringify(current)) {
+        setRefineNote("That didn't change the plan. Try a new length or dollar amount.");
+      } else {
+        replacePlan(next);
+      }
+    };
+
     try {
       if (IS_STATIC_DEMO) {
-        // Static showcase: re-pick a scenario using the adjustment text as the event
-        const { pickDemoScenario } = await import('@/lib/demo-data');
-        await new Promise((r) => setTimeout(r, 900));
-        const next = pickDemoScenario(`${event} — ${adjustment}`);
-        setCurrentResult(next.result);
-        setRefinementHistory((prev) => [...prev, adjustment]);
-        setConfirmedActions(new Set());
+        await planLocally();
         return;
       }
 
-      const response = await fetch('/api/pathfinder/refine', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          profile,
-          customFunds,
-          originalEvent: event,
-          originalResult: currentResult,
-          adjustment,
-        }),
+      const response = await fetch("/api/pathfinder/refine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profile, customFunds, originalEvent: event, originalResult: current, adjustment }),
       });
       const data = await response.json();
-      if (data.result) {
-        setCurrentResult(data.result);
-        setRefinementHistory(prev => [...prev, adjustment]);
-        setConfirmedActions(new Set());
-      }
-    } catch (err) {
-      console.error('Refine failed:', err);
+      if (data.code === NO_AI_KEYS) await planLocally();
+      else if (data.result) replacePlan(data.result);
+      else setRefineNote(data.error ?? "Couldn't update the plan. Try again.");
+    } catch (error) {
+      console.error("Refine failed:", error);
+      setRefineNote("Couldn't update the plan. Try again.");
     } finally {
       setIsRefining(false);
     }
-  }, [profile, customFunds, event, currentResult]);
+  }, [profile, customFunds, event, current]);
 
-  const handleTabChange = (tab: "actions" | "impacts" | "cashflow") => {
-    setTabDirection(TAB_ORDER[tab] > TAB_ORDER[activeTab] ? 1 : -1);
-    setActiveTab(tab);
-    playSound('pop');
-  };
+  const impact = current.impact_summary;
+  const lead = current.thinking_steps.at(-1)?.insights?.[0]?.text;
+  const facts = [impact.income_change, impact.expense_change, impact.net_worth_change, impact.timeline]
+    .filter((card) => card.value !== "$0");
+  const hasMoves = current.account_impacts.some((item) => item.current_balance !== item.projected_balance);
 
-  const handleActionConfirm = () => {
-    if (selectedAction) {
-      const idx = currentResult.quick_actions.indexOf(selectedAction);
-      if (idx !== -1) {
-        setConfirmedActions((prev) => new Set(prev).add(idx));
-        playSound('success');
-      }
-    }
-    setSelectedAction(null);
-  };
+  const detailTabs: { id: DetailTab; label: string }[] = [
+    ...(facts.length > 0 ? [{ id: "numbers" as const, label: "The numbers" }] : []),
+    ...(hasMoves ? [{ id: "moves" as const, label: "Money moves" }] : []),
+    ...(current.risk_warnings.length > 0 ? [{ id: "watch" as const, label: "Watch for" }] : []),
+    ...(current.advisor_flags.length > 0 ? [{ id: "pro" as const, label: "Ask a pro" }] : []),
+    { id: "how", label: "How I did this" },
+  ];
+  const selectedStep = openStep !== null ? actions[openStep] : null;
 
   return (
-    <>
-      <div className="pb-8">
-        <AnimatePresence>
-          {showAnalysisDetails && (
-            <AnalysisDetailsSheet
-              result={currentResult}
-              event={event}
-              onClose={() => setShowAnalysisDetails(false)}
-            />
-          )}
-        </AnimatePresence>
+    <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto] gap-y-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:grid-rows-[minmax(0,1fr)_auto] lg:gap-x-16">
+      <motion.header
+        className="flex min-h-0 flex-col justify-center"
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: "spring", bounce: 0, duration: 0.6 }}
+      >
+        <p className="truncate text-[15px] text-[var(--pf-text-secondary)]">{capitalize(event)}</p>
+        <h1 className="pf-title-lg mt-1 font-serif">{plainAnswer(current.monthly_cashflow)}</h1>
+        {lead && <p className="mt-3 hidden text-[17px] leading-relaxed text-[var(--pf-text-secondary)] lg:line-clamp-3 [@media(max-height:720px)]:hidden">{lead}</p>}
+        {sourceCount > 0 && (
+          <button type="button" className="pf-link mt-2 self-start" onClick={() => setDetailTab("how")}>
+            ✓ Checked {sourceCount} live sources
+          </button>
+        )}
+        <section className="mt-[clamp(10px,2.4vh,24px)] rounded-[18px] bg-[var(--pf-bg-elevated)] p-4 sm:p-5" aria-label="Your money each month">
+          <MoneyStages cashflow={current.monthly_cashflow} />
+        </section>
+      </motion.header>
 
-        <div className="mx-auto max-w-5xl w-full">
-          {/* Sticky Header */}
-          <div className="sticky top-0 z-40 bg-[var(--ws-bg-primary)] px-4 sm:px-10 pt-3 sm:pt-4 pb-4 border-b border-[var(--ws-border)]">
-            <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-3 sm:mb-4 gap-2 sm:gap-3">
-              <div>
-                <p className="text-[var(--ws-text-primary)] text-[32px] sm:text-[42px] font-serif tracking-tight leading-[1] mb-0.5 sm:mb-1">
-                  Your Plan
-                </p>
-                <p className="text-[var(--ws-text-secondary)] text-[13px] sm:text-[14px] max-w-xl leading-relaxed truncate">
-                  &ldquo;{event}&rdquo;
-                </p>
-                <p className="mt-2 max-w-2xl text-[13px] sm:text-[14px] leading-relaxed text-[var(--ws-text-secondary)]">
-                  {planLead}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex bg-[var(--ws-bg-surface)] p-1 rounded-full w-full sm:w-fit min-w-[320px] border border-[var(--ws-border)]">
-              {(["actions", "impacts", "cashflow"] as const).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => handleTabChange(tab)}
-                  className={`flex-1 text-[13px] sm:text-[14px] font-medium py-2 sm:py-2.5 px-4 sm:px-6 rounded-full capitalize transition-all duration-300 ${activeTab === tab
-                    ? "text-[var(--ws-text-inverse)] bg-[var(--ws-text-primary)] shadow-sm"
-                    : "text-[var(--ws-text-secondary)] hover:text-[var(--ws-text-primary)]"
-                    }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 mt-4 lg:grid-cols-4">
-              {overviewCards.map((card) => (
-                <div
-                  key={card.label}
-                  className="rounded-[18px] border bg-[var(--ws-bg-surface)] px-4 py-3"
-                >
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ws-text-tertiary)]">
-                    {card.label}
-                  </p>
-                  <p
-                    className="mt-2 text-[20px] font-semibold tracking-tight"
-                    style={{ color: IMPACT_TONE_COLORS[card.tone] }}
-                  >
-                    {card.value}
-                  </p>
-                  <p className="mt-1 text-[12px] leading-relaxed text-[var(--ws-text-secondary)]">
-                    {card.detail}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="px-4 sm:px-10 py-4 sm:py-5 w-full mt-1 sm:mt-2">
-            <AnimatePresence mode="wait" initial={false}>
-              {activeTab === "actions" && (
-                <motion.div
-                  key="actions"
-
-                  variants={{
-                    initial: { opacity: 0, x: tabDirection * 20 },
-                    animate: { opacity: 1, x: 0, transition: { type: "spring", bounce: 0, duration: 0.35 } },
-                    exit: { opacity: 0, transition: { duration: 0.08 } },
-                  }}
-                  initial="initial"
-                  animate="animate"
-                  exit="exit"
-                  className="w-full max-w-5xl mx-auto flex flex-col pt-2"
-                >
-                  {debugLog && <ReasoningTrace log={debugLog} searchMetadata={searchMetadata} />}
-
-                  <div className="flex flex-row items-center gap-3 mb-4">
-                    {!debugLog && searchMetadata && <SearchSourcesBanner metadata={searchMetadata} />}
-
-                    <button
-                      onClick={() => setShowAnalysisDetails(true)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--ws-bg-primary)] border border-[var(--ws-border)] text-[12px] font-medium text-[var(--ws-text-secondary)] hover:text-[var(--ws-text-primary)] transition-colors w-fit flex-shrink-0 cursor-pointer shadow-sm"
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                        <path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" stroke="currentColor" strokeWidth="1.5" />
-                        <path d="M12 8v8M9 12h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                      </svg>
-                      Full analysis
-                    </button>
-                  </div>
-
-                  {/* Refinement badge */}
-                  {refinementHistory.length > 0 && (
-                    <motion.div
-                      className="flex items-center gap-2 mb-4 mt-2"
-                      initial={{ opacity: 0, scale: 0.9 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ duration: 0.3 }}
-                    >
-                      <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-[var(--ws-accent-green)]/10 text-[var(--ws-accent-green)]">
-                        Refined {refinementHistory.length}x
-                      </span>
-                      <span className="text-[11px] text-[var(--ws-text-tertiary)]">
-                        {refinementHistory[refinementHistory.length - 1]}
-                      </span>
-                    </motion.div>
-                  )}
-
-                  <div className="flex items-center justify-between mb-3">
-                    <h2 className="text-[18px] font-semibold text-[var(--ws-text-primary)]">
-                      Actions
-                    </h2>
-                    <p className="text-[12px] text-[var(--ws-text-secondary)]">
-                      {currentResult.quick_actions.length} steps
-                      {confirmedActions.size > 0 && (
-                        <span className="text-[var(--ws-accent-green)] font-medium">
-                          {" "}&middot; {confirmedActions.size} done
-                        </span>
-                      )}
-                    </p>
-                  </div>
-
-                  {/* Grouped actions by priority */}
-                  <div className="flex flex-col gap-0 border border-[var(--ws-border)] bg-[var(--ws-bg-surface)] p-4 sm:p-5 rounded-[16px] sm:rounded-[20px]">
-                    {(() => {
-                      const actionGroups = PRIORITY_ORDER
-                        .map(priority => ({
-                          priority,
-                          label: PRIORITY_STEP_LABELS[priority],
-                          actions: currentResult.quick_actions
-                            .map((action, originalIndex) => ({ action, originalIndex }))
-                            .filter(({ action, originalIndex }) => action.priority === priority && !confirmedActions.has(originalIndex)),
-                        }))
-                        .filter(group => group.actions.length > 0);
-
-                      return actionGroups.map((group, groupIdx) => (
-                        <div key={group.priority}>
-                          {groupIdx > 0 && (
-                            <div className="flex justify-center py-1.5">
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-[var(--ws-text-tertiary)]">
-                                <path d="M12 5v14M12 19l-4-4M12 19l4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            </div>
-                          )}
-                          <div className="flex items-center gap-2 mb-1.5">
-                            <div className="w-6 h-6 rounded-full bg-[var(--ws-bg-primary)] border border-[var(--ws-border)] flex items-center justify-center text-[11px] font-bold text-[var(--ws-text-secondary)]">
-                              {groupIdx + 1}
-                            </div>
-                            <span className="text-[12px] font-semibold text-[var(--ws-text-tertiary)] uppercase tracking-wider">
-                              {group.label}
-                            </span>
-                          </div>
-                          <AnimatePresence mode="popLayout">
-                            {group.actions.map(({ action, originalIndex }, actionIdx) => {
-                              const isLast = actionIdx === group.actions.length - 1;
-                              return (
-                                <motion.div
-                                  key={`pending-${originalIndex}`}
-                                  layout
-                                  initial={{ opacity: 0, scale: 0.95 }}
-                                  animate={{ opacity: 1, scale: 1 }}
-                                  exit={{ opacity: 0, scale: 0.95 }}
-                                  transition={{ duration: 0.2 }}
-                                  className="relative pl-0 w-full"
-                                >
-                                  {!isLast && (
-                                    <div className="absolute left-[18px] sm:left-[20px] top-[44px] bottom-0 w-[1.5px] bg-[var(--ws-border)] -z-10" />
-                                  )}
-                                  <ActionCard
-                                    action={action}
-                                    index={originalIndex}
-                                    onTap={() => { playSound('tap'); setSelectedAction(action); }}
-                                  />
-                                </motion.div>
-                              );
-                            })}
-                          </AnimatePresence>
-                        </div>
-                      ));
-                    })()}
-                  </div>
-
-                  {confirmedActions.size > 0 && (
-                    <motion.div
-                      className="mt-5 flex flex-col gap-2"
-                      initial={{ opacity: 0, y: 10 }}
-                      whileInView={{ opacity: 1, y: 0 }}
-                      viewport={{ once: true }}
-                      transition={{ duration: 0.3 }}
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        <div className="w-5 h-5 rounded-full bg-[var(--ws-accent-green)] flex items-center justify-center">
-                          <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-                            <path d="M2 6L5 9L10 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </div>
-                        <h3 className="text-[16px] font-semibold text-[var(--ws-text-primary)]">
-                          Completed
-                        </h3>
-                      </div>
-                      <AnimatePresence mode="popLayout">
-                        {currentResult.quick_actions.map((action, i) => {
-                          if (!confirmedActions.has(i)) return null;
-                          return (
-                            <motion.div
-                              key={`completed-${i}`}
-                              layout
-                              initial={{ opacity: 0, scale: 0.95 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              transition={{ duration: 0.2 }}
-                              className="relative pl-0 opacity-60 w-full grayscale"
-                            >
-                              <ActionCard
-                                action={action}
-                                index={i}
-                                onTap={() => { }}
-                              />
-                            </motion.div>
-                          );
-                        })}
-                      </AnimatePresence>
-                    </motion.div>
-                  )}
-
-                  {/* Risks section moved to details sheet */}
-
-                  {/* What-If Refinement Input */}
-                  <WhatIfInput onSubmit={handleRefine} isLoading={isRefining} />
-                </motion.div>
-              )}
-
-              {activeTab === "impacts" && (
-                <motion.div
-                  key="impacts"
-                  variants={{
-                    initial: { opacity: 0, x: tabDirection * 20 },
-                    animate: { opacity: 1, x: 0, transition: { type: "spring", bounce: 0, duration: 0.35 } },
-                    exit: { opacity: 0, transition: { duration: 0.08 } },
-                  }}
-                  initial="initial"
-                  animate="animate"
-                  exit="exit"
-                  className="w-full max-w-5xl mx-auto flex flex-col gap-8 sm:gap-12 pt-2"
-                >
-                  <div>
-                    <div className="mb-6">
-                      <h2 className="text-[20px] font-semibold text-[var(--ws-text-primary)]">Financial Impact</h2>
-                      <p className="text-[13px] text-[var(--ws-text-secondary)] mt-1">What changes if you follow this plan</p>
-                    </div>
-                    <ImpactSummary summary={currentResult.impact_summary} event={event} hideHeader actions={currentResult.quick_actions} />
-                  </div>
-
-                  <div>
-                    <h3 className="text-[20px] font-semibold text-[var(--ws-text-primary)] mb-4">Accounts</h3>
-                    <AccountImpactCards impacts={currentResult.account_impacts} actions={currentResult.quick_actions} />
-                  </div>
-
-                  {currentResult.advisor_flags.length > 0 && (
-                    <div className="border-t border-[var(--ws-border)] pt-8">
-                      <h3 className="text-[20px] font-semibold text-[var(--ws-text-primary)] mb-5">Advisor</h3>
-                      <div className="flex flex-col gap-4">
-                        {currentResult.advisor_flags.map((flag, i) => (
-                          <AdvisorNote key={i} flag={flag} index={i} />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </motion.div>
-              )}
-
-              {activeTab === "cashflow" && (
-                <motion.div
-                  key="cashflow"
-                  variants={{
-                    initial: { opacity: 0, x: tabDirection * 20 },
-                    animate: { opacity: 1, x: 0, transition: { type: "spring", bounce: 0, duration: 0.35 } },
-                    exit: { opacity: 0, transition: { duration: 0.08 } },
-                  }}
-                  initial="initial"
-                  animate="animate"
-                  exit="exit"
-                  className="w-full max-w-5xl mx-auto pt-2"
-                >
-                  <div className="mb-4">
-                    <h3 className="text-[20px] font-semibold text-[var(--ws-text-primary)]">Monthly Cash Flow</h3>
-                    <p className="text-[13px] text-[var(--ws-text-secondary)] mt-1">Can you afford this plan?</p>
-                  </div>
-                  <CashflowCard cashflow={currentResult.monthly_cashflow} actions={currentResult.quick_actions} />
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            <div className="pt-5 pb-5 flex flex-col items-center gap-3 border-t border-[var(--ws-border)] mt-5 w-full max-w-5xl mx-auto">
-              {confirmedActions.size > 0 && (
-                <button
-                  onClick={() => { playSound('complete'); onApplyActions(Array.from(confirmedActions), currentResult.quick_actions); }}
-                  className="w-full py-3.5 rounded-full text-[15px] font-semibold cursor-pointer transition-all hover:opacity-90 active:scale-[0.98]"
-                  style={{
-                    backgroundColor: 'var(--ws-text-primary)',
-                    color: 'var(--ws-bg-primary)',
-                  }}
-                >
-                  Apply & Go Back
-                </button>
-              )}
+      <section className="flex min-h-0 flex-col lg:justify-center lg:py-2">
+        <div className="flex shrink-0 items-baseline justify-between border-b border-[var(--pf-text-primary)] pb-2">
+          <h2 className="font-serif text-[24px]">What to do</h2>
+          <div className="flex items-baseline gap-4">
+            {pages > 1 && (
+              <span className="flex items-center gap-3 text-[14px] text-[var(--pf-text-secondary)]">
+                <button type="button" aria-label="Previous steps" disabled={currentPage === 0} className="cursor-pointer disabled:opacity-25" onClick={() => { setPage(currentPage - 1); playSound("tap"); }}>←</button>
+                {currentPage + 1} of {pages}
+                <button type="button" aria-label="More steps" disabled={currentPage === pages - 1} className="cursor-pointer disabled:opacity-25" onClick={() => { setPage(currentPage + 1); playSound("tap"); }}>→</button>
+              </span>
+            )}
+            {actions.length > 1 && (
               <button
-                onClick={onReset}
-                className="text-[var(--ws-text-tertiary)] text-[14px] underline underline-offset-2 hover:text-[var(--ws-text-secondary)] transition-colors cursor-pointer bg-transparent border-none"
+                type="button"
+                className="pf-link"
+                onClick={() => {
+                  if (added.size === actions.length) {
+                    setAdded(new Set());
+                    playSound("tap");
+                  } else {
+                    setAdded(new Set(actions.map((_, index) => index)));
+                    playSound("success");
+                  }
+                }}
               >
-                Start over
+                {added.size === actions.length ? "Remove all" : "Add all"}
               </button>
-            </div>
+            )}
           </div>
         </div>
-      </div>
+        <ol ref={listRef} className="min-h-0 flex-1 lg:max-h-[calc(5*104px)] overflow-hidden">
+          {visible.map(({ action, index }) => {
+            const isAdded = added.has(index);
+            return (
+              <motion.li
+                key={`${action.title}-${index}`}
+                className="flex items-center gap-4 border-b border-[var(--pf-border)]"
+                style={{ height: STEP_HEIGHT }}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ type: "spring", bounce: 0, duration: 0.4 }}
+              >
+                <button type="button" className="min-w-0 flex-1 cursor-pointer text-left" onClick={() => { setOpenStep(index); playSound("tap"); }}>
+                  <span className="block text-[13px] text-[var(--pf-text-tertiary)]">{PRIORITY_LABELS[action.priority]}</span>
+                  <span className={`line-clamp-2 font-serif text-[20px] leading-[1.15] transition-opacity ${isAdded ? "opacity-40" : ""}`}>{action.title}</span>
+                  <span className="mt-0.5 line-clamp-1 text-[14px] text-[var(--pf-text-secondary)]">{action.why}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggle(index)}
+                  aria-pressed={isAdded}
+                  aria-label={`${isAdded ? "Remove from plan:" : "Add to plan:"} ${action.title}`}
+                  className={`pf-btn h-10 w-[92px] shrink-0 px-0 text-[14px] ${isAdded ? "pf-btn-primary" : "pf-btn-secondary"}`}
+                >
+                  {isAdded ? "✓ Added" : "Add"}
+                </button>
+              </motion.li>
+            );
+          })}
+        </ol>
+      </section>
 
-      {/* Confirmation sheet overlay */}
+      <footer className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-[var(--pf-border)] pt-3 lg:col-span-2">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <button type="button" className="pf-link" onClick={() => setChanging(true)}>Change this plan</button>
+          <button type="button" className="pf-link" onClick={() => setDetailTab(detailTabs[0].id)}>See the details</button>
+          <button type="button" className="pf-link" onClick={onShare} aria-label="Copy share link">{shareLabel}</button>
+          <button type="button" className="pf-link" onClick={onReset}>Start over</button>
+        </div>
+        {added.size > 0 ? (
+          <button
+            type="button"
+            className="pf-btn pf-btn-primary h-11"
+            onClick={() => {
+              playSound("complete");
+              onApplyActions(Array.from(added), actions);
+            }}
+          >
+            Save my plan
+          </button>
+        ) : (
+          <p className="text-[13px] text-[var(--pf-text-tertiary)]">For learning, not financial advice.</p>
+        )}
+      </footer>
+
       <AnimatePresence>
-        {selectedAction && (
-          <ConfirmationSheet
-            action={selectedAction}
-            onConfirm={handleActionConfirm}
-            onCancel={() => setSelectedAction(null)}
-          />
+        {selectedStep && (
+          <Sheet title={selectedStep.title} onClose={() => setOpenStep(null)}>
+            {selectedStep.why && <p className="text-[17px] leading-relaxed text-[var(--pf-text-secondary)]">{selectedStep.why}</p>}
+            <dl className="mt-3">
+              {selectedStep.from_account && <Detail label="From" value={selectedStep.from_account} />}
+              {selectedStep.to_account && <Detail label="To" value={selectedStep.to_account} />}
+              {typeof selectedStep.amount === "number" && selectedStep.amount > 0 && <Detail label="Amount" value={formatMoney(selectedStep.amount)} />}
+              {selectedStep.automation && <Detail label={`Every ${selectedStep.automation.frequency === "monthly" ? "month" : selectedStep.automation.frequency === "weekly" ? "week" : "two weeks"}`} value={formatMoney(selectedStep.automation.amount)} />}
+              {selectedStep.automation?.duration_months && <Detail label="For" value={`${selectedStep.automation.duration_months} month${selectedStep.automation.duration_months === 1 ? "" : "s"}`} />}
+              {selectedStep.automation?.target_amount && <Detail label="Until you reach" value={formatMoney(selectedStep.automation.target_amount)} />}
+            </dl>
+            {selectedStep.derived_from && <p className="mt-3 text-[15px] leading-relaxed text-[var(--pf-text-tertiary)]">How I got this: {selectedStep.derived_from}</p>}
+            <p className="mt-3 text-[14px] text-[var(--pf-text-tertiary)]">No real money moves. Saving only updates your numbers here.</p>
+          </Sheet>
+        )}
+
+        {changing && (
+          <Sheet title="Change this plan" onClose={() => setChanging(false)}>
+            <WhatIfInput
+              onSubmit={handleRefine}
+              isLoading={isRefining}
+              hint={refineNote ?? (isLocal ? "Try a new length or dollar amount." : undefined)}
+            />
+          </Sheet>
+        )}
+
+        {detailTab && (
+          <Sheet title="The details" onClose={() => setDetailTab(null)}>
+            <div className="mb-4 flex flex-wrap gap-2">
+              {detailTabs.map((tab) => (
+                <button key={tab.id} type="button" className="pf-pill" aria-pressed={detailTab === tab.id} onClick={() => { setDetailTab(tab.id); playSound("tap"); }}>
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {detailTab === "numbers" && (
+              <dl>{facts.map((card) => <Detail key={card.label} label={card.label} value={card.value} />)}</dl>
+            )}
+            {detailTab === "moves" && <AccountImpactCards impacts={current.account_impacts} />}
+            {detailTab === "watch" && (
+              <ul className="flex flex-col gap-2">
+                {current.risk_warnings.map((warning) => (
+                  <li key={warning.text} className="text-[16px] leading-relaxed text-[var(--pf-text-secondary)]">{warning.text}</li>
+                ))}
+              </ul>
+            )}
+            {detailTab === "pro" && (
+              <ul className="flex flex-col gap-4">
+                {current.advisor_flags.map((flag) => (
+                  <li key={flag.title}>
+                    <p className="text-[16px] font-medium">{flag.title}</p>
+                    <p className="mt-0.5 text-[16px] leading-relaxed text-[var(--pf-text-secondary)]">{flag.explanation}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {detailTab === "how" && (
+              <div className="flex flex-col gap-3">
+                {isLocal ? (
+                  <p className="text-[16px] leading-relaxed text-[var(--pf-text-secondary)]">
+                    From your numbers and built-in Canadian rules, without AI or live rates. Tax is a rough estimate.
+                  </p>
+                ) : debugLog ? (
+                  <WorkLog log={debugLog} searchMetadata={searchMetadata} />
+                ) : (
+                  <p className="text-[16px] leading-relaxed text-[var(--pf-text-secondary)]">This plan was shared with you, so its working notes aren&rsquo;t included.</p>
+                )}
+                <SponsorSlot />
+                <p className="text-[14px] leading-relaxed text-[var(--pf-text-tertiary)]">For learning, not financial advice. Check with a professional before any big move.</p>
+              </div>
+            )}
+          </Sheet>
         )}
       </AnimatePresence>
-    </>
+    </div>
   );
 }

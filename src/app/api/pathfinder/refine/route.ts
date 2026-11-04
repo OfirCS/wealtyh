@@ -6,6 +6,7 @@ import { parsePathfinderResult, applyPostParseGuardrails } from '@/lib/pathfinde
 import { getCanadianRuleSet } from '@/lib/prompts';
 import type { FinancialProfile, CustomFund, PathfinderResult } from '@/lib/types';
 import { checkRateLimit, rateLimitHeaders } from '@/lib/rate-limit';
+import { NO_AI_KEYS } from '@/lib/claude';
 
 interface RefineRequestBody {
   profile: FinancialProfile;
@@ -66,7 +67,7 @@ export async function POST(request: NextRequest) {
     const anthropicKey = process.env.ANTHROPIC_API_KEY;
     const geminiKey = process.env.GOOGLE_API_KEY;
     if (!anthropicKey && !geminiKey) {
-      return NextResponse.json({ error: 'No AI API keys configured' }, { status: 500 });
+      return NextResponse.json({ error: 'No AI API keys configured', code: NO_AI_KEYS }, { status: 503 });
     }
 
     let body: RefineRequestBody;

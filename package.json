@@ -12,8 +12,7 @@
     "test": "vitest run",
     "eval": "vitest run evals",
     "test:watch": "vitest",
-    "test:e2e": "playwright test --grep-invert @integration",
-    "test:e2e:integration": "playwright test --grep @integration"
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

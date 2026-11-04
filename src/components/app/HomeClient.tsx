@@ -1,21 +1,23 @@
 'use client';
 
-import { useState, useReducer, useCallback, useRef, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useReducer } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { AppState, AppAction, FinancialProfile, PathfinderResult, SearchMetadata, QuickAction, AppliedSummary, CustomFund, DebugLog } from '@/lib/types';
 import { DEFAULT_PROFILE } from '@/lib/defaults';
 import { applyConfirmedActions } from '@/lib/apply-actions';
+import { addQuickEntry, emptyBudget, loadBudget, monthKey, monthSummary, saveBudget } from '@/lib/budget';
+import type { Budget } from '@/lib/budget';
+import { clearShareStateFromUrl, readShareStateFromUrl, writeShareStateToUrl } from '@/lib/share';
+import { playSound } from '@/lib/sounds';
+import BudgetScreen from '@/components/budget/BudgetScreen';
 import HomeScreen from '@/components/home/HomeScreen';
 import ThinkingView from '@/components/thinking/ThinkingView';
 import PlanView from '@/components/plan/PlanView';
-import { Logo } from "@/components/ui/Logo";
-import FlowDiagram from '@/components/demo/FlowDiagram';
-import Disclaimer from '@/components/ui/Disclaimer';
-import Footer from '@/components/ui/Footer';
-import SponsorSlot from '@/components/ui/SponsorSlot';
-import { readShareStateFromUrl, writeShareStateToUrl } from '@/lib/share';
+import ConnectStep from '@/components/setup/ConnectStep';
+import QuestionFlow from '@/components/setup/QuestionFlow';
+import { Logo } from '@/components/ui/Logo';
+import SoundToggle from '@/components/ui/SoundToggle';
 
-// ... (keep reducer and initialization code exactly as is until HomeClient)
 function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
     case 'UPDATE_PROFILE':
@@ -172,13 +174,36 @@ function createInitialState(): AppState {
 
 export type PipelineStepStatus = { id: string; status: 'active' | 'complete'; label?: string; detail?: string };
 
+/** An iPhone Shortcut can open /?spent=12.50&at=Starbucks after each Apple Pay tap. */
+function readWalletLink(): { amount: number; description: string } | null {
+  const params = new URLSearchParams(window.location.search);
+  const amount = Number(params.get('spent'));
+  const description = params.get('at')?.trim();
+  return amount > 0 && description ? { amount, description } : null;
+}
+
+function hasSavedNumbers(): boolean {
+  if (readShareStateFromUrl()) return true;
+  try {
+    return window.localStorage.getItem(STORAGE_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
 export default function HomeClient() {
   const [state, dispatch] = useReducer(appReducer, undefined, createInitialState);
-  const [isPromptOpen, setIsPromptOpen] = useState(false);
-  const [pipelineSteps, setPipelineSteps] = useState<Record<string, PipelineStepStatus>>({});
+  const [hasNumbers, setHasNumbers] = useState(hasSavedNumbers);
+  const [pendingEvent, setPendingEvent] = useState<string | null>(null);
   const [shareToast, setShareToast] = useState<string | null>(null);
-  const prevStepRef = useRef(state.step);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [walletEntry] = useState(readWalletLink);
+  const [section, setSection] = useState<'plan' | 'budget'>(walletEntry ? 'budget' : 'plan');
+  const [budget, setBudget] = useState<Budget | null>(() => {
+    const saved = loadBudget();
+    if (!walletEntry) return saved;
+    return addQuickEntry(saved ?? emptyBudget(), walletEntry, new Date().toISOString().slice(0, 10), 'wallet').budget;
+  });
+  const [typing, setTyping] = useState(false);
   const sharedHydratedRef = useRef(false);
 
   useEffect(() => {
@@ -200,15 +225,20 @@ export default function HomeClient() {
   }, []);
 
   useEffect(() => {
-    prevStepRef.current = state.step;
-    // Scroll to top on step change
-    if (scrollRef.current) {
-      scrollRef.current.scrollTo({ top: 0 });
-    }
-  }, [state.step]);
+    saveBudget(budget);
+  }, [budget]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (!walletEntry) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('spent');
+    url.searchParams.delete('at');
+    window.history.replaceState({}, '', url.toString());
+  }, [walletEntry]);
+
+  useEffect(() => {
+    // A first-time visitor has nothing to remember until they've answered
+    if (!hasNumbers) return;
     try {
       window.localStorage.setItem(
         STORAGE_KEY,
@@ -220,7 +250,7 @@ export default function HomeClient() {
     } catch {
       // Ignore storage failures (private mode/quota)
     }
-  }, [state.profile, state.customFunds]);
+  }, [state.profile, state.customFunds, hasNumbers]);
 
   const handleProfileChange = useCallback((profile: FinancialProfile) => {
     dispatch({ type: 'UPDATE_PROFILE', profile });
@@ -231,12 +261,25 @@ export default function HomeClient() {
   }, []);
 
   const handleEventSubmit = useCallback((event: string) => {
-    setPipelineSteps({});
-    dispatch({ type: 'SUBMIT_EVENT', event });
-  }, []);
+    if (hasNumbers) dispatch({ type: 'SUBMIT_EVENT', event });
+    else {
+      setTyping(false);
+      setPendingEvent(event);
+    }
+  }, [hasNumbers]);
 
-  const handlePipelineStep = useCallback((step: PipelineStepStatus) => {
-    setPipelineSteps((prev) => ({ ...prev, [step.id]: step }));
+  const handleAnswered = useCallback((profile: FinancialProfile) => {
+    if (pendingEvent === null) return;
+    dispatch({ type: 'UPDATE_PROFILE', profile });
+    dispatch({ type: 'SUBMIT_EVENT', event: pendingEvent });
+    setHasNumbers(true);
+    setPendingEvent(null);
+  }, [pendingEvent]);
+
+  const handleUseSample = useCallback(() => {
+    playSound('pop');
+    dispatch({ type: 'UPDATE_PROFILE', profile: { ...DEFAULT_PROFILE } });
+    setHasNumbers(true);
   }, []);
 
   const handleThinkingComplete = useCallback((result: PathfinderResult, searchMetadata: SearchMetadata | null, debugLog: DebugLog | null) => {
@@ -248,11 +291,12 @@ export default function HomeClient() {
   }, []);
 
   const handleReset = useCallback(() => {
-    setPipelineSteps({});
+    clearShareStateFromUrl();
     dispatch({ type: 'RESET' });
   }, []);
 
   const handleApplyActions = useCallback((confirmedIndices: number[], actions: QuickAction[]) => {
+    clearShareStateFromUrl();
     dispatch({ type: 'APPLY_ACTIONS', confirmedIndices, actions });
   }, []);
 
@@ -296,205 +340,121 @@ export default function HomeClient() {
     }
   }, [state]);
 
+  const handleBudgetProfile = useCallback((profile: FinancialProfile) => {
+    clearShareStateFromUrl();
+    dispatch({ type: 'RESET' });
+    dispatch({ type: 'UPDATE_PROFILE', profile });
+  }, []);
+
+  const budgetLeft = useMemo(
+    () => (budget ? monthSummary(budget, monthKey(new Date())).left : null),
+    [budget],
+  );
+
+  const screen = section === 'budget' ? 'budget' : pendingEvent !== null ? 'questions' : state.step;
+
   return (
-    <div className="h-screen w-full flex items-stretch bg-[var(--ws-bg-surface)] p-3 sm:p-4 overflow-hidden">
-      <div className="w-full h-full max-w-[1600px] mx-auto flex gap-3 sm:gap-4">
-        {/* Main App Container */}
-        <main
-          className="relative flex-1 h-full bg-[var(--ws-bg-primary)] rounded-[24px] sm:rounded-[32px] border border-[var(--ws-border)] shadow-[0_24px_70px_rgba(0,0,0,0.4)] overflow-hidden flex flex-col"
-          style={{ transform: "translateZ(0)" }}
+    <div className="flex h-[100dvh] w-full flex-col overflow-hidden">
+      <header className={`mx-auto flex h-16 w-full shrink-0 items-center justify-between gap-4 px-5 sm:px-8 ${section === 'budget' ? 'max-w-none' : 'max-w-[1120px]'}`}>
+        <button
+          type="button"
+          className="cursor-pointer"
+          aria-label="Pathfinder home"
+          onClick={() => {
+            setSection('plan');
+            setPendingEvent(null);
+            handleReset();
+          }}
         >
+          <Logo />
+        </button>
+        <nav className="flex items-center gap-4 sm:gap-6">
+          <button type="button" className="pf-tab" aria-current={section === 'plan' ? 'page' : undefined} onClick={() => { setSection('plan'); playSound('tap'); }}>Plan</button>
+          <button type="button" className="pf-tab" aria-current={section === 'budget' ? 'page' : undefined} onClick={() => { setSection('budget'); playSound('tap'); }}>Budget</button>
+          <SoundToggle />
+        </nav>
+      </header>
 
-          {/* Header bar */}
-          <header
-            className="shrink-0 z-50 flex items-center justify-between px-6 pt-4 pb-3.5 bg-[var(--ws-bg-primary)] border-b border-[var(--ws-border)] rounded-t-[24px] sm:rounded-t-[32px]"
-          >
-            <div className="flex items-center gap-3">
-              <Logo />
-            </div>
-            <div className="flex items-center gap-3">
-              {state.step === 'plan' && (
-                <button
-                  onClick={handleShare}
-                  className="text-[13px] font-medium transition-colors hover:opacity-70 flex items-center gap-1.5 cursor-pointer"
-                  style={{ color: 'var(--ws-text-secondary)' }}
-                  aria-label="Copy share link"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                    <circle cx="18" cy="5" r="3" />
-                    <circle cx="6" cy="12" r="3" />
-                    <circle cx="18" cy="19" r="3" />
-                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-                    <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-                  </svg>
-                  {shareToast ?? 'Share'}
-                </button>
-              )}
-              {state.step !== 'home' && (
-                <button
-                  onClick={handleReset}
-                  className="text-[13px] font-medium transition-colors hover:opacity-70 cursor-pointer"
-                  style={{ color: 'var(--ws-text-tertiary)' }}
-                >
-                  Start over
-                </button>
-              )}
-            </div>
-          </header>
-
-          {/* Scrollable content — fills remaining height, scrolls internally */}
-          <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden hide-scrollbar">
-            <AnimatePresence mode="wait">
+      <AnimatePresence mode="wait">
+        <motion.main
+          key={screen}
+          className={`mx-auto min-h-0 w-full flex-1 px-5 pb-4 sm:px-8 ${section === 'budget' ? 'max-w-none' : 'max-w-[1120px]'}`}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.14 }}
+        >
+          {section === 'budget' ? (
+            <BudgetScreen
+              budget={budget}
+              profile={state.profile}
+              customFunds={state.customFunds}
+              hasNumbers={hasNumbers}
+              onChange={setBudget}
+              onUpdateProfile={handleBudgetProfile}
+            />
+          ) : pendingEvent !== null ? (
+            budget || typing ? (
+              <QuestionFlow event={pendingEvent} connected={typing ? null : budget} onDone={handleAnswered} onBack={() => setPendingEvent(null)} />
+            ) : (
+              <ConnectStep event={pendingEvent} onConnected={setBudget} onTypeInstead={() => setTyping(true)} onBack={() => setPendingEvent(null)} />
+            )
+          ) : (
+            <>
               {state.step === 'home' && (
-                <motion.div
-                  key="home"
-                  variants={{
-                    initial: { opacity: 0, y: 24 },
-                    animate: { opacity: 1, y: 0, transition: { type: "spring", bounce: 0, duration: 0.5 } },
-                    exit: { opacity: 0, transition: { duration: 0.15 } },
-                  }}
-                  initial="initial"
-                  animate="animate"
-                  exit="exit"
-                  className="pb-10 w-full will-change-transform"
-                >
-                  <HomeScreen
-                    profile={state.profile}
-                    customFunds={state.customFunds}
-                    appliedSummary={state.appliedSummary}
-                    onProfileChange={handleProfileChange}
-                    onCustomFundsChange={handleCustomFundsChange}
-                    onSubmit={handleEventSubmit}
-                    onPromptOpenChange={setIsPromptOpen}
-                  />
-                </motion.div>
+                <HomeScreen
+                  profile={state.profile}
+                  customFunds={state.customFunds}
+                  hasNumbers={hasNumbers}
+                  appliedSummary={state.appliedSummary}
+                  onProfileChange={handleProfileChange}
+                  onCustomFundsChange={handleCustomFundsChange}
+                  onSubmit={handleEventSubmit}
+                  onUseSample={handleUseSample}
+                  budgetLeft={budgetLeft}
+                  onOpenBudget={() => setSection('budget')}
+                />
               )}
 
               {state.step === 'thinking' && (
-                <motion.div
-                  key="thinking"
-                  variants={{
-                    initial: { opacity: 0 },
-                    animate: { opacity: 1, transition: { duration: 0.3 } },
-                    exit: { opacity: 0, transition: { duration: 0.12 } },
-                  }}
-                  initial="initial"
-                  animate="animate"
-                  exit="exit"
-                  className="w-full min-h-full flex flex-col justify-center items-center p-6 will-change-transform"
-                >
-                  <ThinkingView
-                    profile={state.profile}
-                    customFunds={state.customFunds}
-                    event={state.event}
-                    onComplete={handleThinkingComplete}
-                    onError={handleThinkingError}
-                    onPipelineStep={handlePipelineStep}
-                  />
-                </motion.div>
+                <ThinkingView
+                  profile={state.profile}
+                  customFunds={state.customFunds}
+                  event={state.event}
+                  onComplete={handleThinkingComplete}
+                  onError={handleThinkingError}
+                />
               )}
 
               {state.step === 'plan' && (
-                <motion.div
-                  key="plan"
-                  variants={{
-                    initial: { opacity: 0, y: 30 },
-                    animate: { opacity: 1, y: 0, transition: { type: "spring", bounce: 0, duration: 0.5 } },
-                    exit: { opacity: 0, transition: { duration: 0.15 } },
-                  }}
-                  initial="initial"
-                  animate="animate"
-                  exit="exit"
-                  className="w-full will-change-transform"
-                >
-                  <PlanView
-                    result={state.result}
-                    event={state.event}
-                    profile={state.profile}
-                    customFunds={state.customFunds}
-                    searchMetadata={state.searchMetadata}
-                    debugLog={state.debugLog}
-                    onReset={handleReset}
-                    onApplyActions={handleApplyActions}
-                  />
-                </motion.div>
+                <PlanView
+                  result={state.result}
+                  event={state.event}
+                  profile={state.profile}
+                  customFunds={state.customFunds}
+                  searchMetadata={state.searchMetadata}
+                  debugLog={state.debugLog}
+                  shareLabel={shareToast ?? 'Share'}
+                  onShare={handleShare}
+                  onReset={handleReset}
+                  onApplyActions={handleApplyActions}
+                />
               )}
 
               {state.step === 'error' && (
-                <motion.div
-                  key="error"
-                  variants={{
-                    initial: { opacity: 0 },
-                    animate: { opacity: 1, transition: { duration: 0.3 } },
-                    exit: { opacity: 0, transition: { duration: 0.15 } },
-                  }}
-                  initial="initial"
-                  animate="animate"
-                  exit="exit"
-                  className="w-full will-change-transform"
-                >
-                  <div className="mx-auto max-w-[400px] px-6 pt-20 text-center">
-                    <div
-                      className="rounded-xl p-6 mb-6"
-                      style={{
-                        backgroundColor: 'var(--ws-bg-surface)',
-                        border: '1px solid var(--ws-border)',
-                      }}
-                    >
-                      <p className="text-[18px] font-semibold mb-2" style={{ color: 'var(--ws-text-primary)' }}>
-                        Something went wrong
-                      </p>
-                      <p className="text-[14px] mb-5" style={{ color: 'var(--ws-text-secondary)' }}>
-                        {state.message}
-                      </p>
-                      <div className="flex gap-3 justify-center">
-                        <button
-                          onClick={handleRetry}
-                          className="px-5 py-2.5 rounded-full text-[14px] font-semibold cursor-pointer"
-                          style={{
-                            backgroundColor: 'var(--ws-text-primary)',
-                            color: 'var(--ws-bg-primary)',
-                          }}
-                        >
-                          Try again
-                        </button>
-                        <button
-                          onClick={handleReset}
-                          className="px-5 py-2.5 rounded-full text-[14px] font-medium cursor-pointer"
-                          style={{
-                            border: '1px solid var(--ws-border)',
-                            color: 'var(--ws-text-secondary)',
-                          }}
-                        >
-                          Go back
-                        </button>
-                      </div>
-                    </div>
+                <div className="mx-auto flex h-full max-w-[640px] flex-col justify-center">
+                  <h1 className="pf-title-lg font-serif">Something went wrong</h1>
+                  <p className="mt-3 text-[17px] leading-relaxed text-[var(--pf-text-secondary)]">{state.message}</p>
+                  <div className="mt-6 flex gap-3">
+                    <button type="button" className="pf-btn pf-btn-primary" onClick={handleRetry}>Try again</button>
+                    <button type="button" className="pf-btn pf-btn-secondary" onClick={handleReset}>Go back</button>
                   </div>
-                </motion.div>
+                </div>
               )}
-            </AnimatePresence>
-          </div>
-        </main>
-
-        {/* Persistent Sidebar — always visible, matches main height */}
-        <aside className="hidden md:flex flex-col w-[260px] lg:w-[320px] xl:w-[360px] shrink-0 h-full bg-[var(--ws-bg-primary)] rounded-[24px] sm:rounded-[32px] border border-[var(--ws-border)] shadow-xl overflow-hidden">
-          <div className="flex-1 min-h-0 overflow-y-auto">
-            <FlowDiagram
-              appStep={state.step === 'error' ? 'error' : state.step}
-              isPromptOpen={isPromptOpen}
-              searchMetadata={state.step === 'plan' ? state.searchMetadata : undefined}
-              debugLog={state.step === 'plan' ? state.debugLog : undefined}
-              pipelineSteps={pipelineSteps}
-            />
-          </div>
-          <div className="shrink-0 p-3 border-t border-[var(--ws-border)]">
-            <SponsorSlot />
-          </div>
-        </aside>
-      </div>
-      <Disclaimer />
-      <Footer />
+            </>
+          )}
+        </motion.main>
+      </AnimatePresence>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { estimateTakeHome } from './money';
 import type { FinancialProfile, CustomFund } from './types';
 
 // ── Derived Metrics ─────────────────────────────────────────────────────────
@@ -6,6 +7,8 @@ export interface DerivedMetrics {
   monthlyIncome: number;
   monthlyPartnerIncome: number;
   monthlyHouseholdIncome: number;
+  /** Household income after estimated tax. */
+  monthlyTakeHome: number;
   totalMonthlyExpenses: number;
   monthlySurplus: number;
   savingsRate: number;
@@ -34,10 +37,13 @@ export function computeDerivedMetrics(
     profile.discretionarySpending +
     profile.debtPayments;
 
-  const monthlySurplus = monthlyHouseholdIncome - totalMonthlyExpenses;
+  // Spending comes out of take-home pay, so the surplus has to be measured after tax
+  const monthlyTakeHome =
+    (estimateTakeHome(profile.annualIncome) + estimateTakeHome(profile.partnerIncome)) / 12;
+  const monthlySurplus = monthlyTakeHome - totalMonthlyExpenses;
   const savingsRate =
-    monthlyHouseholdIncome > 0
-      ? Math.round((monthlySurplus / monthlyHouseholdIncome) * 100)
+    monthlyTakeHome > 0
+      ? Math.round((monthlySurplus / monthlyTakeHome) * 100)
       : 0;
 
   const liquidAssets = profile.chequingBalance + profile.savingsBalance;
@@ -88,6 +94,7 @@ export function computeDerivedMetrics(
     monthlyIncome,
     monthlyPartnerIncome,
     monthlyHouseholdIncome,
+    monthlyTakeHome,
     totalMonthlyExpenses,
     monthlySurplus,
     savingsRate,
@@ -179,12 +186,13 @@ ${customFundsSection}
 ${debtSection}
 
 ## Monthly Cashflow
-- Household income: ${fmtDollar(Math.round(m.monthlyHouseholdIncome))}
+- Household income before tax: ${fmtDollar(Math.round(m.monthlyHouseholdIncome))}
+- Household take-home after estimated tax: ${fmtDollar(Math.round(m.monthlyTakeHome))}
 - Housing: ${fmtDollar(profile.housingExpense)}
 - Essentials: ${fmtDollar(profile.essentialExpenses)}
 - Discretionary: ${fmtDollar(profile.discretionarySpending)}
 - Debt payments: ${fmtDollar(profile.debtPayments)}
-- **Surplus: ${fmtDollar(Math.round(m.monthlySurplus))}** (${m.savingsRate}% savings rate)
+- **Surplus after tax: ${fmtDollar(Math.round(m.monthlySurplus))}** (${m.savingsRate}% savings rate). Use this for all cashflow reasoning.
 
 ## Key Metrics
 - Emergency fund: ${m.emergencyFundMonths} months of expenses
@@ -278,6 +286,13 @@ Current date: ${asOfDate}. Use this date context for all "current" references.
 - Self-directed brokerages typically offer commission-free ETF trades.
 - Registered accounts (TFSA / RRSP / FHSA / RESP) are the highest-leverage tools — always reason about them first.
 - CDIC coverage applies to eligible cash deposits at member institutions.
+
+## Plain Language
+Someone with no finance background reads every word. Write action titles, reasons, labels and cashflow phase names in everyday language.
+- Spell things out: "credit card" not "CC", "a month" not "/mo", "Employment Insurance" not "EI".
+- Use full phrases instead of arrows: "Move $2,000 to your TFSA", not "Move $2,000 → TFSA".
+- Name cashflow phases simply, like "Today", "While saving" or "After you move in".
+- Keep the account names TFSA, RRSP, FHSA and RESP, since those are what people see at their bank.
 
 ## Account Playbook (WHEN to suggest each account)
 

@@ -104,16 +104,16 @@ function StepRow({
         className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-colors"
         style={{
           backgroundColor: isActive
-            ? 'var(--ws-accent-green)'
+            ? 'var(--pf-accent-green)'
             : isDone
-              ? 'var(--ws-bg-elevated)'
-              : 'var(--ws-bg-surface)',
+              ? 'var(--pf-bg-elevated)'
+              : 'var(--pf-bg-surface)',
           color: isActive
             ? '#fff'
             : isDone
-              ? 'var(--ws-text-primary)'
-              : 'var(--ws-text-tertiary)',
-          border: isDone || isActive ? '1px solid transparent' : '1px solid var(--ws-border)',
+              ? 'var(--pf-text-primary)'
+              : 'var(--pf-text-tertiary)',
+          border: isDone || isActive ? '1px solid transparent' : '1px solid var(--pf-border)',
         }}
       >
         {isDone ? (
@@ -137,17 +137,17 @@ function StepRow({
           className="text-[14px] font-semibold leading-tight"
           style={{
             color: isActive
-              ? 'var(--ws-text-primary)'
+              ? 'var(--pf-text-primary)'
               : isDone
-                ? 'var(--ws-text-primary)'
-                : 'var(--ws-text-secondary)',
+                ? 'var(--pf-text-primary)'
+                : 'var(--pf-text-secondary)',
           }}
         >
           {step.title}
         </p>
         <p
           className="text-[12px] leading-snug mt-0.5"
-          style={{ color: 'var(--ws-text-tertiary)' }}
+          style={{ color: 'var(--pf-text-tertiary)' }}
         >
           {step.body}
         </p>
@@ -204,34 +204,34 @@ export default function FlowDiagram({
           : 'Three steps, all behind the scenes';
 
   return (
-    <div className="w-full h-full bg-[var(--ws-bg-primary)] flex flex-col overflow-hidden">
-      <div className="shrink-0 px-6 pt-8 pb-5 border-b border-[var(--ws-border)]">
+    <div className="w-full h-full bg-[var(--pf-bg-primary)] flex flex-col overflow-hidden">
+      <div className="shrink-0 px-6 pt-8 pb-5 border-b border-[var(--pf-border)]">
         <div className="flex items-center gap-2 mb-1">
           <motion.span
             className="w-2 h-2 rounded-full"
             style={{
               backgroundColor:
                 phase === 'thinking'
-                  ? 'var(--ws-accent-green)'
+                  ? 'var(--pf-accent-green)'
                   : phase === 'error'
-                    ? 'var(--ws-accent-red)'
-                    : 'var(--ws-text-tertiary)',
+                    ? 'var(--pf-accent-red)'
+                    : 'var(--pf-text-tertiary)',
             }}
             animate={phase === 'thinking' ? { opacity: [1, 0.3, 1] } : { opacity: 1 }}
             transition={{ duration: 1.4, repeat: phase === 'thinking' ? Infinity : 0 }}
           />
-          <p className="text-[11px] uppercase tracking-[0.08em] font-semibold text-[var(--ws-text-tertiary)]">
+          <p className="text-[11px] uppercase tracking-[0.08em] font-semibold text-[var(--pf-text-tertiary)]">
             {phase === 'thinking' ? 'Live' : phase === 'ready' ? 'Done' : phase === 'error' ? 'Error' : 'Idle'}
           </p>
         </div>
-        <h2 className="text-[18px] font-semibold leading-tight text-[var(--ws-text-primary)]">
+        <h2 className="text-[18px] font-semibold leading-tight text-[var(--pf-text-primary)]">
           {headline}
         </h2>
-        <p className="text-[12px] mt-1 text-[var(--ws-text-secondary)]">{subhead}</p>
+        <p className="text-[12px] mt-1 text-[var(--pf-text-secondary)]">{subhead}</p>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto hide-scrollbar px-6 py-2">
-        <div className="flex flex-col divide-y divide-[var(--ws-border)]">
+        <div className="flex flex-col divide-y divide-[var(--pf-border)]">
           {STEPS.map((step, i) => {
             let state: 'idle' | 'active' | 'done';
             if (phase === 'ready') state = 'done';
@@ -250,9 +250,9 @@ export default function FlowDiagram({
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className="mt-6 pt-5 border-t border-[var(--ws-border)]"
+              className="mt-6 pt-5 border-t border-[var(--pf-border)]"
             >
-              <p className="text-[11px] uppercase tracking-[0.08em] font-semibold text-[var(--ws-text-tertiary)] mb-2">
+              <p className="text-[11px] uppercase tracking-[0.08em] font-semibold text-[var(--pf-text-tertiary)] mb-2">
                 Live sources used
               </p>
               <div className="flex flex-col gap-1.5">
@@ -262,7 +262,7 @@ export default function FlowDiagram({
                     href={source.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-[12px] text-[var(--ws-text-secondary)] hover:text-[var(--ws-text-primary)] truncate underline-offset-2 hover:underline"
+                    className="text-[12px] text-[var(--pf-text-secondary)] hover:text-[var(--pf-text-primary)] truncate underline-offset-2 hover:underline"
                     title={source.url}
                   >
                     {source.title || source.url}

@@ -12,6 +12,6 @@ const nextConfig: NextConfig = isStatic
       trailingSlash: true,
       images: { unoptimized: true },
     }
-  : {};
+  : { devIndicators: false };
 
 export default nextConfig;

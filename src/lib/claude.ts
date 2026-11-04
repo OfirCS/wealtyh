@@ -2,6 +2,9 @@ import type { FinancialProfile, CustomFund, PathfinderResult, SearchMetadata, Th
 
 export const IS_STATIC_DEMO = process.env.NEXT_PUBLIC_STATIC_DEMO === 'true';
 
+/** Returned by the API when no AI key is set, so the client can use the built-in planner. */
+export const NO_AI_KEYS = 'NO_AI_KEYS';
+
 export interface PathfinderResponse {
   result: PathfinderResult;
   searchMetadata: SearchMetadata | null;
@@ -14,9 +17,8 @@ export async function callPathfinder(
   customFunds: CustomFund[] = [],
 ): Promise<PathfinderResponse> {
   if (IS_STATIC_DEMO) {
-    const { pickDemoScenario } = await import('./demo-data');
-    const s = pickDemoScenario(lifeEvent);
-    return { result: s.result, searchMetadata: s.searchMetadata, debugLog: s.debugLog };
+    const { buildLocalPlan } = await import('./local-plan');
+    return { result: buildLocalPlan(profile, customFunds, lifeEvent), searchMetadata: null, debugLog: null };
   }
 
   const response = await fetch('/api/pathfinder', {
@@ -44,8 +46,8 @@ export async function callPathfinderThink(
   customFunds: CustomFund[] = [],
 ): Promise<ThinkingStep[]> {
   if (IS_STATIC_DEMO) {
-    const { pickDemoScenario } = await import('./demo-data');
-    return pickDemoScenario(lifeEvent).result.thinking_steps;
+    const { buildLocalPlan } = await import('./local-plan');
+    return buildLocalPlan(profile, customFunds, lifeEvent).thinking_steps;
   }
 
   const response = await fetch('/api/pathfinder/think', {
@@ -99,8 +101,8 @@ export async function callPathfinderStream(
   onEvent: (event: StreamEvent) => void,
 ): Promise<void> {
   if (IS_STATIC_DEMO) {
-    const { runDemoStream } = await import('./demo-data');
-    await runDemoStream(lifeEvent, onEvent);
+    const { runLocalStream } = await import('./local-plan');
+    await runLocalStream(profile, customFunds, lifeEvent, onEvent);
     return;
   }
 
@@ -112,6 +114,11 @@ export async function callPathfinderStream(
 
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
+    if (data.code === NO_AI_KEYS) {
+      const { runLocalStream } = await import('./local-plan');
+      await runLocalStream(profile, customFunds, lifeEvent, onEvent);
+      return;
+    }
     throw new Error(data.error || `Stream error (${response.status})`);
   }
 

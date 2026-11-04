@@ -1,122 +1,64 @@
 # Pathfinder
 
-[![CI](https://github.com/OfirCS/wealtyh/actions/workflows/ci.yml/badge.svg)](https://github.com/OfirCS/wealtyh/actions/workflows/ci.yml)
-[![Deploy](https://github.com/OfirCS/wealtyh/actions/workflows/deploy.yml/badge.svg)](https://github.com/OfirCS/wealtyh/actions/workflows/deploy.yml)
-![Evals](https://img.shields.io/badge/AI%20evals-6%2F6%20passing-2b7a42)
+A free Canadian money agent. Say what's changing in your life, show it your spending, and get a plain answer: can you afford this, and what should you do? It also keeps a family budget that fills itself in.
 
-A free, AI-powered Canadian life-decision planner. Type a life event (having a baby, buying a home, taking a career break) plus your real numbers, and get back a concrete plan with TFSA/RRSP/FHSA awareness, live data via search grounding, and a shareable link.
+No signup and no bank login. It's for learning, not financial advice, and it never moves real money.
 
-- **Live:** https://pathfinder.fyi (when deployed)
-- **GitHub Pages demo:** https://ofircs.github.io/wealtyh/ — pre-recorded AI responses for "having a baby", "buying a home", "career break". For the real Claude + Gemini pipeline, run locally with `npm run dev`.
-
-> It is an educational tool — no real money moves. No bank integration, no auth, no signup.
-
----
-
-## The interesting part: the AI proposes, deterministic code disposes
-
-The hard problem with an LLM giving financial advice isn't generating plausible text — it's making sure every dollar is **real**, every action is **possible**, and every suggestion is **relevant** to what the user actually asked. Pathfinder treats the model as a *proposer* and puts a deterministic engine in charge of *disposing*:
-
-```
-User Input (life event + financial profile)
-        │
-        ▼
-   1. Router    (Claude Haiku → Gemini)        ── "would live data change the dollar amounts?"
-        │
-   2. Search    (Gemini + Google grounding)    ── fetches current rates / costs, with sources
-        │
-   3. Generate  (Claude Sonnet → Gemini)        ── drafts a full structured plan as JSON
-        │
-   4. Guardrails (pure TypeScript, no model)    ── re-derives every number from the user's real balances
-        │
-        ▼
-   Plan view  +  reasoning trace  +  shareable URL
-```
-
-Every provider call has a **Claude → Gemini fallback** (`callAI` in `src/lib/pathfinder-engine.ts`), so the app degrades gracefully if one provider is down.
-
-### The guardrail layer is where the engineering lives
-
-After the model returns JSON, `applyPostParseGuardrails()` (`src/lib/pathfinder-engine.ts`) never trusts a single number it produced. It:
-
-- runs a **mutable balance ledger** — each action's cost is deducted so later actions only see the *remaining* balance, with a $500 chequing floor;
-- runs a **room ledger** for registered accounts (TFSA/RRSP/FHSA/RESP) and caps deposits to real contribution room;
-- enforces **eligibility** — strips an FHSA deposit for someone who already owns a home, a credit-card pay-off when there's no balance, an automation the surplus can't sustain;
-- **smart-splits** a move that's too big into a lump sum + a follow-up automation for the shortfall;
-- **rebuilds** `account_impacts`, `monthly_cashflow`, and the net-worth summary from the user's actual balances + the validated actions, so the displayed math always ties out;
-- runs a **relevance filter** over the model's chain-of-thought (`filterThinkingSteps`) that removes generic profile audits ("Cash Flow Analysis") and reasoning about goals the user is *abandoning* ("done with buying a house" → drop the down-payment steps, keep the FHSA-withdrawal-tax step);
-- applies a **complexity-based action cap** (simple → 2, moderate → 4, multi-goal → up to 7).
-
-## How we measure quality — evals
-
-The most credible way to show the guardrails work is to **measure** them. `evals/` is a deterministic eval harness that replays **recorded raw model responses** (some deliberately wrong) through the real `parse → guardrails` pipeline and scores invariants. It calls **no live model**, so it runs in CI with **no API keys**.
-
-```bash
-npm run eval
-```
-
-Current scorecard ([full results](./evals/RESULTS.md), [methodology](./evals/README.md)):
-
-| Metric | Pass rate |
-| --- | --- |
-| `balance_room_safety` — no action exceeds source balance or registered room | 6/6 |
-| `relevance_filter` — surviving reasoning is on-topic, abandoned goals stripped | 6/6 |
-| `math_consistency` — cashflow, balances & net-worth tie to real numbers | 6/6 |
-| `eligibility_removals` — impossible/ineligible actions removed for the right reason | 6/6 |
-| `action_count_discipline` — plan respects the complexity-based cap | 6/6 |
-
-A regression in the guardrails turns the eval — and CI — red.
-
-## See it reason
-
-The plan view's **"How Pathfinder reasoned"** panel surfaces the actual decision trace, not a marketing summary: the router's decision *and its reasoning*, the search queries + sources it grounded on, how many actions it drafted, and exactly which suggestions were **capped or removed** against your real balances (e.g. _"Max FHSA $8,000 — not a home-buying event"_). It makes the "propose / dispose" split visible in the product itself. The `/backend-flow` page renders the same pipeline as an interactive diagram.
-
----
-
-## Stack & cost
-
-- Next.js 16 + TypeScript (strict) + Tailwind v4, deployed on Vercel
-- Claude (`@anthropic-ai/sdk`) + Gemini (`@google/genai`) for the AI pipeline
-- In-memory IP rate limit (default: 20 plans/IP/day, 1000 plans/day globally)
-- Cost in production: free Vercel + ~$0.003 per Claude plan call. With the default cap of 1000/day ≈ ~$3/day worst case.
-
-## Run locally
+## Run it
 
 ```bash
 npm install
-cp .env.example .env   # add your keys
 npm run dev            # http://localhost:3003
 ```
 
-## Tests, types & evals
+That's all you need. With no keys it uses the built-in planner. To turn on the live agent, add a key:
 
 ```bash
-npm run typecheck   # tsc --noEmit
-npm run lint        # eslint
-npm test            # unit + eval suites (no API keys needed)
-npm run eval        # AI eval scorecard → evals/RESULTS.md
-npm run test:e2e    # Playwright end-to-end (mock-driven)
+cp .env.example .env   # then paste in your ANTHROPIC_API_KEY
 ```
 
-CI (`.github/workflows/ci.yml`) runs typecheck + lint + unit tests + evals on every push and PR — all **without API keys** (71 checks green, plus a 6-scenario eval suite). Live-AI integration tests are gated behind `GOOGLE_API_KEY` and skip automatically when it's absent.
+## What's in it
 
-## Deploy to Vercel
+**Plan.** Say what's changing, connect your spending, and the agent answers in one sentence, shows your money today, during the change and after it, then lists the steps. With a key it searches the web for current rates and shows its sources. Fixed rules then check every dollar against your real balances.
 
-1. Push this repo to GitHub.
-2. Import in Vercel.
-3. Set environment variables (see `.env.example`).
-4. Deploy. The in-memory rate limiter works on Vercel without any other infra.
+**Budget.** A board of real spreadsheets you can drag, resize and edit like Excel. Click a cell and type. Drag a purchase onto a category to sort it, and the agent remembers that merchant. It opens on a sample family until you connect your own.
 
-For traffic over a few hundred plans/day, swap `src/lib/rate-limit.ts` for Upstash KV.
+## Connecting without a bank login
 
-## Sponsor / ads
+| Source | How | Status |
+| --- | --- | --- |
+| Bank or card statement (CSV) | Drop the file. Read in your browser and never uploaded. | Works now |
+| PDF statement | Drop the file. Claude reads it. | Works now, needs a key |
+| Apple Wallet screenshot | Drop the picture. Claude reads it. | Works now, needs a key |
+| Email receipt or bank alert | Paste it. Claude reads it. | Works now, needs a key |
+| Every Apple Pay tap | An iPhone Shortcut opens `/?spent=AMOUNT&at=MERCHANT` | Built, needs the site online. Not yet tried on a real iPhone. |
+| Forwarded bank alert emails | A personal address that alerts get forwarded to | Not built. Needs a server and accounts. |
 
-To enable a sponsor slot, set in Vercel:
+Apple does not let websites read Wallet, and its FinanceKit API only reaches native apps. Canada's open banking law has passed but isn't live yet.
 
+## Stack and cost
+
+- Next.js 16, TypeScript, Tailwind and Framer Motion, with no database. Your numbers stay in the browser unless you use an AI feature.
+- Plans use Claude Sonnet, with Claude Haiku for the quick first steps. Gemini is a fallback if a Google key is set.
+- Live search and reading files use Claude Opus 5.5 at low effort, with a server-side fallback if a request is refused. Search uses Google grounding instead if a Google key is set.
+- A real plan with live search takes about a minute. Rate limits default to 20 requests per IP and 1,000 a day overall.
+
+## Deploy
+
+Vercel: import the repo and set your environment variables. For heavy traffic, swap `src/lib/rate-limit.ts` for a shared store.
+
+GitHub Pages: `npm run build:static` makes a static site. It has no server, so it uses the built-in planner, and reading pictures and PDFs is turned off.
+
+## Sponsor slot
+
+Set `NEXT_PUBLIC_SPONSOR_NAME`, `NEXT_PUBLIC_SPONSOR_PITCH` and `NEXT_PUBLIC_SPONSOR_URL`. It appears in a plan's details when all three are set.
+
+## Tests
+
+```bash
+npm test               # planner, budget, statement parsing, guardrails
+npm run test:e2e       # real browser, including a no-scrolling check at six window sizes
+npm run eval           # AI pipeline, replayed from recorded fixtures
 ```
-NEXT_PUBLIC_SPONSOR_NAME="Sponsor name"
-NEXT_PUBLIC_SPONSOR_PITCH="One-line pitch (max ~120 chars)"
-NEXT_PUBLIC_SPONSOR_URL="https://sponsor.example.com"
-```
 
-If any are missing, the slot shows "Ad slot available" with a mailto link.
+`npm run test:e2e` needs a browser the first time: `npx playwright install chromium`. None of these spend API credits.

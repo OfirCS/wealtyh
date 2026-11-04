@@ -1,28 +1,32 @@
-import type { Metadata } from "next";
-import { Inter, Newsreader } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Instrument_Sans, Newsreader } from "next/font/google";
 import "./globals.css";
-
-const inter = Inter({
-  variable: "--font-inter",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-});
 
 const newsreader = Newsreader({
   variable: "--font-newsreader",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["400", "500"],
+});
+
+const instrument = Instrument_Sans({
+  variable: "--font-instrument",
+  subsets: ["latin"],
 });
 
 export const metadata: Metadata = {
-  title: "Pathfinder — Plan any life change with AI",
-  description: "Free Canadian life-decision planner. Enter your numbers and a life event — get an AI-generated plan with TFSA / RRSP / FHSA awareness, live data, and a shareable link.",
+  title: "Pathfinder — A plan for what's next",
+  description: "Free Canadian life-decision planner. Tell it what's changing, answer a few questions, and approve a plan built from your real numbers.",
   metadataBase: new URL("https://pathfinder.fyi"),
   openGraph: {
-    title: "Pathfinder — Plan any life change with AI",
-    description: "Baby? Home? Career break? See the financial impact in 30 seconds.",
+    title: "Pathfinder — A plan for what's next",
+    description: "Baby? Home? Career break? Get a plan in a minute.",
     type: "website",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#FFFFFF",
+  colorScheme: "light",
 };
 
 export default function RootLayout({
@@ -32,7 +36,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} ${newsreader.variable} antialiased`}>
+      <body className={`${newsreader.variable} ${instrument.variable} antialiased`}>
         {children}
       </body>
     </html>

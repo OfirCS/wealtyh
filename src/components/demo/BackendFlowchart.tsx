@@ -26,10 +26,10 @@ export default function BackendFlowchart({ currentStep }: BackendFlowchartProps)
     };
 
     return (
-        <div className="w-full h-full bg-[var(--ws-bg-dark)] border-l border-[var(--ws-border)] flex flex-col pt-[70px] px-8 pb-10">
+        <div className="w-full h-full bg-[var(--pf-bg-dark)] border-l border-[var(--pf-border)] flex flex-col pt-[70px] px-8 pb-10">
             <div className="mb-10">
-                <h2 className="text-[14px] font-semibold text-[var(--ws-text-secondary)] uppercase tracking-widest mb-2">Backend Process</h2>
-                <p className="text-[13px] text-[var(--ws-text-tertiary)]">Live visualization of Pathfinder AI execution flow.</p>
+                <h2 className="text-[14px] font-semibold text-[var(--pf-text-secondary)] uppercase tracking-widest mb-2">Backend Process</h2>
+                <p className="text-[13px] text-[var(--pf-text-tertiary)]">Live visualization of Pathfinder AI execution flow.</p>
             </div>
 
             <div className="relative flex-1 flex flex-col justify-between max-h-[600px]">

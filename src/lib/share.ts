@@ -60,8 +60,9 @@ export function decodeShareState(encoded: string): ShareState | null {
 
 export function readShareStateFromUrl(): ShareState | null {
   if (typeof window === 'undefined') return null;
-  const params = new URLSearchParams(window.location.search);
-  const encoded = params.get(PARAM);
+  // Older links carried the state in the query string
+  const encoded = new URLSearchParams(window.location.hash.slice(1)).get(PARAM)
+    ?? new URLSearchParams(window.location.search).get(PARAM);
   if (!encoded) return null;
   return decodeShareState(encoded);
 }
@@ -69,8 +70,10 @@ export function readShareStateFromUrl(): ShareState | null {
 export function writeShareStateToUrl(state: Omit<ShareState, 'v'>): string {
   const encoded = encodeShareState(state);
   if (typeof window === 'undefined') return encoded;
+  // The hash never reaches a server, so someone's numbers stay out of request logs
   const url = new URL(window.location.href);
-  url.searchParams.set(PARAM, encoded);
+  url.searchParams.delete(PARAM);
+  url.hash = `${PARAM}=${encoded}`;
   window.history.replaceState({}, '', url.toString());
   return url.toString();
 }
@@ -78,7 +81,7 @@ export function writeShareStateToUrl(state: Omit<ShareState, 'v'>): string {
 export function clearShareStateFromUrl(): void {
   if (typeof window === 'undefined') return;
   const url = new URL(window.location.href);
-  if (!url.searchParams.has(PARAM)) return;
   url.searchParams.delete(PARAM);
+  url.hash = '';
   window.history.replaceState({}, '', url.toString());
 }

@@ -22,12 +22,12 @@ export default function Button({
   type = "button",
 }: ButtonProps) {
   const baseStyles =
-    "rounded-full font-semibold px-6 py-3.5 text-[16px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ws-accent-yellow)] focus-visible:ring-offset-2 flex justify-center items-center gap-2";
+    "rounded-full font-semibold px-6 py-3.5 text-[16px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--pf-text-primary)] focus-visible:ring-offset-2 flex justify-center items-center gap-2";
 
   const variantStyles =
     variant === "primary"
-      ? "bg-[var(--ws-accent-yellow)] text-[var(--ws-text-primary)]"
-      : "bg-transparent border border-[var(--ws-border)] text-[var(--ws-text-primary)]";
+      ? "bg-[var(--pf-text-primary)] text-[var(--pf-text-primary)]"
+      : "bg-transparent border border-[var(--pf-border)] text-[var(--pf-text-primary)]";
 
   const widthStyles = fullWidth ? "w-full" : "";
 

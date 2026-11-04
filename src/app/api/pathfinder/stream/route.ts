@@ -12,6 +12,7 @@ import {
 import type { DebugLogEntry } from '@/lib/types';
 import { checkRateLimit, rateLimitHeaders } from '@/lib/rate-limit';
 import { validatePathfinderInput } from '@/lib/validate-request';
+import { NO_AI_KEYS } from '@/lib/claude';
 
 /** Call Claude (primary) with automatic Gemini fallback — for generation */
 async function callGenerate(system: string, userMessage: string): Promise<string> {
@@ -59,7 +60,7 @@ export async function POST(request: NextRequest) {
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   const geminiKey = process.env.GOOGLE_API_KEY;
   if (!anthropicKey && !geminiKey) {
-    return new Response(JSON.stringify({ error: 'No AI API keys configured' }), { status: 500 });
+    return new Response(JSON.stringify({ error: 'No AI API keys configured', code: NO_AI_KEYS }), { status: 503 });
   }
 
   const limit = checkRateLimit(request);
@@ -113,8 +114,8 @@ export async function POST(request: NextRequest) {
 
       try {
         // ── Fire Router + Analyze in PARALLEL (saves ~1s) ──
-        send({ type: 'step', id: 'router', status: 'active', label: 'Routing' });
-        send({ type: 'step', id: 'analyze', status: 'active', label: 'Analyzing' });
+        send({ type: 'step', id: 'router', status: 'active', label: 'Reading your situation' });
+        send({ type: 'step', id: 'analyze', status: 'active', label: 'Running your numbers' });
 
         const routerPromise = routeQuery(profile, lifeEvent, customFunds);
         const preThinkPromise = generateThinkingPreview(profile, lifeEvent, customFunds)
@@ -122,10 +123,10 @@ export async function POST(request: NextRequest) {
             if (steps.length > 0) {
               send({ type: 'thinking_steps', steps });
             }
-            send({ type: 'step', id: 'analyze', status: 'complete', label: 'Analyzed' });
+            send({ type: 'step', id: 'analyze', status: 'complete', label: 'Ran your numbers' });
           })
           .catch(() => {
-            send({ type: 'step', id: 'analyze', status: 'complete', label: 'Analyzed' });
+            send({ type: 'step', id: 'analyze', status: 'complete', label: 'Ran your numbers' });
           });
 
         // Wait for router (analyze continues in background)
@@ -141,17 +142,15 @@ export async function POST(request: NextRequest) {
           type: 'step',
           id: 'router',
           status: 'complete',
-          label: 'Routed',
-          detail: route.needs_search
-            ? `Searching ${route.queries.slice(0, 2).join(', ')}`
-            : 'No search needed',
+          label: 'Read your situation',
+          detail: route.needs_search ? 'This needs live data' : 'Your numbers are enough',
         });
 
         // ── Search (if needed) ──
         let searchContext: string | null = null;
         let searchMetadata = null;
         if (route.needs_search && route.queries.length > 0) {
-          send({ type: 'step', id: 'search', status: 'active', label: `Searching` });
+          send({ type: 'step', id: 'search', status: 'active', label: 'Searching the web', detail: route.queries[0] });
           try {
             const searchResult = await searchForContext(route.queries);
             searchContext = searchResult.text;
@@ -165,7 +164,7 @@ export async function POST(request: NextRequest) {
               type: 'step',
               id: 'search',
               status: 'complete',
-              label: `Found ${searchResult.metadata.sources.length} sources`,
+              label: `Checked ${searchResult.metadata.sources.length} live sources`,
               detail: JSON.stringify(searchResult.metadata.sources.slice(0, 5).map(s => ({
                 title: s.title || 'Web Result',
                 url: s.url,
@@ -174,19 +173,16 @@ export async function POST(request: NextRequest) {
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             log.push({ step: 'Search', detail: `Search failed: ${msg}` });
-            send({ type: 'step', id: 'search', status: 'complete', label: 'Search skipped' });
+            send({ type: 'step', id: 'search', status: 'complete', label: "Couldn't reach live data", detail: 'Using built-in rules instead' });
           }
         }
 
         // ── Generate plan (with heartbeat so UI doesn't feel stuck) ──
-        send({ type: 'step', id: 'generate', status: 'active', label: 'Generating' });
+        send({ type: 'step', id: 'generate', status: 'active', label: 'Drafting your plan' });
 
-        // Heartbeat: cycle through status messages every 2.5s during generation
-        const heartbeatLabels = ['Building plan...', 'Analyzing scenarios...', 'Optimizing actions...', 'Almost done...'];
-        let heartbeatIdx = 0;
+        // Keeps the connection open during a long generation
         const heartbeat = setInterval(() => {
-          send({ type: 'step', id: 'generate', status: 'active', label: 'Generating', detail: heartbeatLabels[heartbeatIdx % heartbeatLabels.length] });
-          heartbeatIdx++;
+          send({ type: 'step', id: 'generate', status: 'active', label: 'Drafting your plan' });
         }, 2500);
 
         let userMessage = buildUserMessage(profile, lifeEvent, customFunds);
@@ -218,11 +214,12 @@ export async function POST(request: NextRequest) {
           type: 'step',
           id: 'generate',
           status: 'complete',
-          label: `Created ${actionsBeforeGuardrails} actions`,
+          label: 'Drafted your plan',
+          detail: `${actionsBeforeGuardrails} steps`,
         });
 
         // Step 5: Guardrails
-        send({ type: 'step', id: 'guardrails', status: 'active', label: 'Validating' });
+        send({ type: 'step', id: 'guardrails', status: 'active', label: 'Checking every dollar' });
 
         const result = applyPostParseGuardrails(rawResult, profile, customFunds, lifeEvent, rules, removedActions);
 
@@ -238,8 +235,8 @@ export async function POST(request: NextRequest) {
           type: 'step',
           id: 'guardrails',
           status: 'complete',
-          label: `${result.quick_actions.length} of ${actionsBeforeGuardrails} actions validated`,
-          detail: removedActions.length > 0 ? `${removedActions.length} removed by guardrails` : undefined,
+          label: 'Checked every dollar',
+          detail: `${result.quick_actions.length} of ${actionsBeforeGuardrails} steps passed`,
         });
 
         const debugLog = {
