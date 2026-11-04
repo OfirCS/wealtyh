@@ -15,6 +15,7 @@ import {
   totalPlanned,
 } from '@/lib/budget';
 import { DEFAULT_PROFILE } from '@/lib/defaults';
+import { emailToText } from '@/lib/gmail';
 import { cleanAgentRows, parseCsv, parseStatement, StatementError } from '@/lib/statement';
 import { sampleStatement } from '@/lib/sample-statement';
 
@@ -233,5 +234,41 @@ describe('cleanAgentRows', () => {
   it('drops anything that is not a real transaction', () => {
     expect(cleanAgentRows([{ description: 'No amount' }, { description: '', amount: 5 }, { description: 'Zero', amount: 0 }, { description: 'Bad', amount: 'x' }, null], '2026-11-04')).toEqual([]);
     expect(cleanAgentRows('not a list', '2026-11-04')).toEqual([]);
+  });
+});
+
+describe('plain sentences', () => {
+  it('reads natural spending notes', () => {
+    expect(parseQuickEntry('spent 40 on gas')).toEqual({ amount: 40, description: 'gas' });
+    expect(parseQuickEntry('paid $12.50 for lunch')).toEqual({ amount: 12.5, description: 'lunch' });
+    expect(categorize('gas').categoryId).toBe('transport');
+    expect(categorize('lunch').categoryId).toBe('eating');
+  });
+});
+
+describe('emailToText', () => {
+  const body = (text: string) => btoa(text).replace(/\+/g, '-').replace(/\//g, '_');
+  const headers = [{ name: 'From', value: 'Shop <hi@shop.ca>' }, { name: 'Subject', value: 'Your receipt' }];
+
+  it('prefers plain text and keeps who, when and what', () => {
+    const text = emailToText({
+      internalDate: String(Date.UTC(2026, 10, 2, 12)),
+      payload: { headers, parts: [{ mimeType: 'text/html', body: { data: body('<b>ignored</b>') } }, { mimeType: 'text/plain', body: { data: body('Total $12.50') } }] },
+    });
+    expect(text).toContain('From: Shop <hi@shop.ca>');
+    expect(text).toContain('Date: 2026-11-02');
+    expect(text).toContain('Total $12.50');
+    expect(text).not.toContain('ignored');
+  });
+
+  it('strips html, styles and scripts', () => {
+    const text = emailToText({ payload: { headers, mimeType: 'text/html', body: { data: body('<style>a{color:red}</style><p>Total <b>$9</b></p><script>x()</script>') } } });
+    expect(text).toContain('Total $9');
+    expect(text).not.toContain('color:red');
+    expect(text).not.toContain('x()');
+  });
+
+  it('falls back to the preview when there is no body', () => {
+    expect(emailToText({ snippet: 'Paid $5', payload: { headers } })).toContain('Paid $5');
   });
 });

@@ -235,7 +235,7 @@ export default function PlanView({
             ✓ Checked {sourceCount} live sources
           </button>
         )}
-        <section className="mt-[clamp(10px,2.4vh,24px)] rounded-[18px] bg-[var(--pf-bg-elevated)] p-4 sm:p-5" aria-label="Your money each month">
+        <section className="mt-[clamp(10px,2.4vh,24px)] rounded-[20px] bg-[var(--pf-bg-surface)] p-4 shadow-[0_2px_10px_rgba(60,50,30,0.05)] sm:p-5" aria-label="Your money each month">
           <MoneyStages cashflow={current.monthly_cashflow} />
         </section>
       </motion.header>

@@ -1,22 +1,38 @@
 :root {
   color-scheme: light;
 
-  /* Black and white. Hierarchy comes from size, weight and space, not colour. */
-  --pf-bg-primary: #FFFFFF;
+  /* Warm paper, soft white cards, near-black ink */
+  --pf-bg-primary: #FBF9F4;
   --pf-bg-surface: #FFFFFF;
-  --pf-bg-elevated: #F6F6F5;
-  --pf-bg-dark: #EDEDEB;
-  --pf-bg-hover: #F2F2F1;
-  --pf-bg-advisor: #F6F6F5;
+  --pf-bg-elevated: #F4F0E7;
+  --pf-bg-dark: #E9E4D8;
+  --pf-bg-hover: #EFEADF;
+  --pf-bg-advisor: #F4F0E7;
 
-  --pf-text-primary: #0A0A0A;
-  --pf-text-secondary: #545454;
-  --pf-text-tertiary: #757575;
+  --pf-text-primary: #1C1B18;
+  --pf-text-secondary: #5C5A52;
+  --pf-text-tertiary: #75716A;
   --pf-text-inverse: #FFFFFF;
 
-  --pf-accent-green: #0A0A0A;
-  --pf-accent-red: #0A0A0A;
+  /* Only ever used to mean "fine" or "needs attention" */
+  --pf-good: #2F7A5B;
+  --pf-good-soft: #E3F1EA;
+  --pf-warn: #BC4B32;
+  --pf-warn-soft: #FAE8E2;
 
-  --pf-border: #E6E6E4;
-  --pf-border-hover: #0A0A0A;
+  --pf-accent-green: #2F7A5B;
+  --pf-accent-red: #BC4B32;
+
+  --pf-border: #E8E3D8;
+  --pf-border-hover: #1C1B18;
+}
+
+:root {
+  /* The agent's colour. Used only for what the agent is doing or asking. */
+  --pf-agent: #D6F35B;
+  --pf-ink: #0E0E0C;
+  --pf-ink-soft: #1C1C19;
+  --pf-ink-line: rgba(246, 243, 236, 0.14);
+  --pf-ivory: #F6F3EC;
+  --pf-ivory-dim: rgba(246, 243, 236, 0.62);
 }

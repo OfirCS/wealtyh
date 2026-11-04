@@ -14,12 +14,12 @@ const instrument = Instrument_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Pathfinder — A plan for what's next",
-  description: "Free Canadian life-decision planner. Tell it what's changing, answer a few questions, and approve a plan built from your real numbers.",
+  title: "Pathfinder — The family budget that builds itself",
+  description: "Sign in once and your agent reads your receipts, builds your family budget, and tells you what to do next. Made for Canadian families.",
   metadataBase: new URL("https://pathfinder.fyi"),
   openGraph: {
-    title: "Pathfinder — A plan for what's next",
-    description: "Baby? Home? Career break? Get a plan in a minute.",
+    title: "Pathfinder — The family budget that builds itself",
+    description: "Sign in once. Your agent does the rest.",
     type: "website",
   },
 };

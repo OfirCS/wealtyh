@@ -81,7 +81,54 @@ textarea:focus-visible {
 }
 
 .pf-btn-primary:hover:not(:disabled) {
-  background: #333333;
+  background: #3A3833;
+}
+
+.pf-btn-agent {
+  background: var(--pf-agent);
+  color: var(--pf-ink);
+}
+
+.pf-btn-agent:hover:not(:disabled) {
+  background: #E2F97C;
+}
+
+.pf-btn-outline-dark {
+  box-shadow: inset 0 0 0 1px var(--pf-ink-line);
+  color: var(--pf-ivory);
+}
+
+.pf-btn-outline-dark:hover:not(:disabled) {
+  background: var(--pf-ink-soft);
+}
+
+.pf-card {
+  background: var(--pf-bg-surface);
+  border-radius: 20px;
+  box-shadow: 0 1px 2px rgba(40, 34, 20, 0.05), 0 8px 24px rgba(40, 34, 20, 0.04);
+}
+
+.pf-hero-title {
+  font-size: clamp(38px, min(6.6vw, 11vh), 92px);
+  line-height: 0.98;
+  letter-spacing: -0.03em;
+}
+
+.pf-grid-dark {
+  background-image:
+    linear-gradient(var(--pf-ink-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--pf-ink-line) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(70% 70% at 70% 45%, black, transparent);
+}
+
+@keyframes pf-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(214, 243, 91, 0.55); }
+  50% { box-shadow: 0 0 0 6px rgba(214, 243, 91, 0); }
+}
+
+.pf-pulse {
+  animation: pf-pulse 1.6s ease-in-out infinite;
 }
 
 .pf-btn-secondary {
@@ -143,7 +190,8 @@ textarea:focus-visible {
   min-height: 40px;
   padding: 8px 16px;
   border-radius: 999px;
-  background: var(--pf-bg-elevated);
+  background: var(--pf-bg-surface);
+  box-shadow: inset 0 0 0 1px var(--pf-border);
   color: var(--pf-text-primary);
   font-size: 14px;
   font-weight: 500;
@@ -152,7 +200,7 @@ textarea:focus-visible {
 }
 
 .pf-pill:hover {
-  background: var(--pf-bg-dark);
+  background: var(--pf-bg-hover);
 }
 
 .pf-pill:active {

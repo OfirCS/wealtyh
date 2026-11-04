@@ -1,22 +1,31 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, useReducer } from 'react';
+import { useCallback, useEffect, useRef, useState, useReducer } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { AppState, AppAction, FinancialProfile, PathfinderResult, SearchMetadata, QuickAction, AppliedSummary, CustomFund, DebugLog } from '@/lib/types';
 import { DEFAULT_PROFILE } from '@/lib/defaults';
 import { applyConfirmedActions } from '@/lib/apply-actions';
-import { addQuickEntry, emptyBudget, loadBudget, monthKey, monthSummary, saveBudget } from '@/lib/budget';
-import type { Budget } from '@/lib/budget';
+import { addQuickEntry, defaultMonth, emptyBudget, loadBudget, profileWithBudget, saveBudget } from '@/lib/budget';
+import type { Budget, ImportSummary } from '@/lib/budget';
+import type { Insight } from '@/lib/agent-insights';
+import { getMoneyPicture, grossFromTakeHome } from '@/lib/money';
+import { clearEverything, loadSession, saveSession } from '@/lib/session';
+import type { Session } from '@/lib/session';
+import { useBudgetImport } from '@/lib/use-budget-import';
 import { clearShareStateFromUrl, readShareStateFromUrl, writeShareStateToUrl } from '@/lib/share';
 import { playSound } from '@/lib/sounds';
 import BudgetScreen from '@/components/budget/BudgetScreen';
 import HomeScreen from '@/components/home/HomeScreen';
 import ThinkingView from '@/components/thinking/ThinkingView';
 import PlanView from '@/components/plan/PlanView';
-import ConnectStep from '@/components/setup/ConnectStep';
 import QuestionFlow from '@/components/setup/QuestionFlow';
-import { Logo } from '@/components/ui/Logo';
-import SoundToggle from '@/components/ui/SoundToggle';
+import AgentRun from '@/components/agent/AgentRun';
+import SignIn from '@/components/auth/SignIn';
+import AppShell from '@/components/app/AppShell';
+import type { Section } from '@/components/app/AppShell';
+import ConnectionsPage from '@/components/dashboard/ConnectionsPage';
+import Dashboard from '@/components/dashboard/Dashboard';
+import Landing from '@/components/landing/Landing';
 
 function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
@@ -191,33 +200,52 @@ function hasSavedNumbers(): boolean {
   }
 }
 
+type Entry = 'landing' | 'signin' | 'google' | 'demo';
+
 export default function HomeClient() {
   const [state, dispatch] = useReducer(appReducer, undefined, createInitialState);
-  const [hasNumbers, setHasNumbers] = useState(hasSavedNumbers);
-  const [pendingEvent, setPendingEvent] = useState<string | null>(null);
-  const [shareToast, setShareToast] = useState<string | null>(null);
   const [walletEntry] = useState(readWalletLink);
-  const [section, setSection] = useState<'plan' | 'budget'>(walletEntry ? 'budget' : 'plan');
+  const [shared] = useState(() => readShareStateFromUrl() !== null);
+  const [session, setSession] = useState<Session | null>(() => loadSession() ?? (shared || walletEntry ? { name: '', email: '', kind: 'demo' } : null));
+  const [entry, setEntry] = useState<Entry>('landing');
+  const [signInProblem, setSignInProblem] = useState<string | null>(null);
+  const [section, setSection] = useState<Section>(walletEntry ? 'budget' : shared ? 'plans' : 'home');
   const [budget, setBudget] = useState<Budget | null>(() => {
     const saved = loadBudget();
     if (!walletEntry) return saved;
     return addQuickEntry(saved ?? emptyBudget(), walletEntry, new Date().toISOString().slice(0, 10), 'wallet').budget;
   });
-  const [typing, setTyping] = useState(false);
+  const [hasNumbers, setHasNumbers] = useState(hasSavedNumbers);
+  const [pendingEvent, setPendingEvent] = useState<string | null>(null);
+  const [shareToast, setShareToast] = useState<string | null>(null);
+  const [report, setReport] = useState<ImportSummary | null>(null);
+  const [fillKey, setFillKey] = useState(0);
+  const [month, setMonth] = useState<string>(() => defaultMonth(budget ?? emptyBudget(), new Date()));
   const sharedHydratedRef = useRef(false);
+
+  const fallbackIncome = hasNumbers ? getMoneyPicture(state.profile, state.customFunds).monthlyTakeHome : 0;
+
+  const onImported = useCallback((next: Budget, summary: ImportSummary, nextMonth: string) => {
+    setBudget(next);
+    setMonth(nextMonth);
+    setReport(summary);
+    setFillKey((key) => key + 1);
+  }, []);
+
+  const { steps, error, addFile, connectGmail } = useBudgetImport({ budget, fallbackIncome, onImported });
 
   useEffect(() => {
     if (sharedHydratedRef.current) return;
     sharedHydratedRef.current = true;
-    const shared = readShareStateFromUrl();
-    if (!shared) return;
-    dispatch({ type: 'UPDATE_PROFILE', profile: shared.profile });
-    dispatch({ type: 'UPDATE_CUSTOM_FUNDS', customFunds: shared.customFunds });
-    if (shared.event && shared.result) {
-      dispatch({ type: 'SUBMIT_EVENT', event: shared.event });
+    const sharedState = readShareStateFromUrl();
+    if (!sharedState) return;
+    dispatch({ type: 'UPDATE_PROFILE', profile: sharedState.profile });
+    dispatch({ type: 'UPDATE_CUSTOM_FUNDS', customFunds: sharedState.customFunds });
+    if (sharedState.event && sharedState.result) {
+      dispatch({ type: 'SUBMIT_EVENT', event: sharedState.event });
       dispatch({
         type: 'COMPLETE_THINKING',
-        result: shared.result,
+        result: sharedState.result,
         searchMetadata: null,
         debugLog: null,
       });
@@ -237,7 +265,6 @@ export default function HomeClient() {
   }, [walletEntry]);
 
   useEffect(() => {
-    // A first-time visitor has nothing to remember until they've answered
     if (!hasNumbers) return;
     try {
       window.localStorage.setItem(
@@ -261,11 +288,9 @@ export default function HomeClient() {
   }, []);
 
   const handleEventSubmit = useCallback((event: string) => {
+    setSection('plans');
     if (hasNumbers) dispatch({ type: 'SUBMIT_EVENT', event });
-    else {
-      setTyping(false);
-      setPendingEvent(event);
-    }
+    else setPendingEvent(event);
   }, [hasNumbers]);
 
   const handleAnswered = useCallback((profile: FinancialProfile) => {
@@ -275,12 +300,6 @@ export default function HomeClient() {
     setHasNumbers(true);
     setPendingEvent(null);
   }, [pendingEvent]);
-
-  const handleUseSample = useCallback(() => {
-    playSound('pop');
-    dispatch({ type: 'UPDATE_PROFILE', profile: { ...DEFAULT_PROFILE } });
-    setHasNumbers(true);
-  }, []);
 
   const handleThinkingComplete = useCallback((result: PathfinderResult, searchMetadata: SearchMetadata | null, debugLog: DebugLog | null) => {
     dispatch({ type: 'COMPLETE_THINKING', result, searchMetadata, debugLog });
@@ -346,73 +365,117 @@ export default function HomeClient() {
     dispatch({ type: 'UPDATE_PROFILE', profile });
   }, []);
 
-  const budgetLeft = useMemo(
-    () => (budget ? monthSummary(budget, monthKey(new Date())).left : null),
-    [budget],
-  );
+  const finishRun = useCallback((next: Budget | null, user: Session) => {
+    saveSession(user);
+    setSession(user);
+    setSection('home');
+    setSignInProblem(null);
+    if (next) {
+      setBudget(next);
+      setMonth(defaultMonth(next, new Date()));
+      setFillKey((key) => key + 1);
+      if (user.kind === 'demo') {
+        // The demo family's plan numbers come from the same money as their budget
+        const annualIncome = grossFromTakeHome(next.income * 12);
+        dispatch({ type: 'UPDATE_PROFILE', profile: profileWithBudget({ ...DEFAULT_PROFILE, annualIncome, partnerIncome: 0 }, next) });
+        setHasNumbers(true);
+      }
+    } else {
+      setBudget(emptyBudget());
+    }
+  }, []);
 
-  const screen = section === 'budget' ? 'budget' : pendingEvent !== null ? 'questions' : state.step;
+  const failRun = useCallback((problem: string) => {
+    setSignInProblem(problem);
+    setEntry('signin');
+  }, []);
+
+  const signOut = useCallback(() => {
+    clearEverything();
+    window.location.assign(window.location.pathname);
+  }, []);
+
+  const handleInsight = useCallback((insight: Insight) => {
+    if (insight.action === 'plan' && insight.prompt) handleEventSubmit(insight.prompt);
+    else if (insight.action === 'connect') setSection('connections');
+    else setSection('budget');
+  }, [handleEventSubmit]);
+
+  if (!session) {
+    if (entry === 'google' || entry === 'demo') {
+      return <AgentRun key={entry} mode={entry} onDone={finishRun} onFailed={failRun} />;
+    }
+    if (entry === 'signin') {
+      return (
+        <SignIn
+          problem={signInProblem}
+          onGoogle={() => setEntry('google')}
+          onDemo={() => setEntry('demo')}
+          onBack={() => setEntry('landing')}
+        />
+      );
+    }
+    return <Landing onStart={() => setEntry('signin')} onDemo={() => setEntry('demo')} />;
+  }
+
+  const screen = section !== 'plans' ? section : pendingEvent !== null ? 'questions' : state.step;
 
   return (
-    <div className="flex h-[100dvh] w-full flex-col overflow-hidden">
-      <header className={`mx-auto flex h-16 w-full shrink-0 items-center justify-between gap-4 px-5 sm:px-8 ${section === 'budget' ? 'max-w-none' : 'max-w-[1120px]'}`}>
-        <button
-          type="button"
-          className="cursor-pointer"
-          aria-label="Pathfinder home"
-          onClick={() => {
-            setSection('plan');
-            setPendingEvent(null);
-            handleReset();
-          }}
-        >
-          <Logo />
-        </button>
-        <nav className="flex items-center gap-4 sm:gap-6">
-          <button type="button" className="pf-tab" aria-current={section === 'plan' ? 'page' : undefined} onClick={() => { setSection('plan'); playSound('tap'); }}>Plan</button>
-          <button type="button" className="pf-tab" aria-current={section === 'budget' ? 'page' : undefined} onClick={() => { setSection('budget'); playSound('tap'); }}>Budget</button>
-          <SoundToggle />
-        </nav>
-      </header>
-
+    <AppShell section={section} session={session} onNavigate={(next) => { setSection(next); playSound('tap'); }} onSignOut={signOut}>
       <AnimatePresence mode="wait">
-        <motion.main
+        <motion.div
           key={screen}
-          className={`mx-auto min-h-0 w-full flex-1 px-5 pb-4 sm:px-8 ${section === 'budget' ? 'max-w-none' : 'max-w-[1120px]'}`}
+          className="h-full min-h-0"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.14 }}
+          transition={{ duration: 0.12 }}
         >
-          {section === 'budget' ? (
+          {section === 'home' && (
+            <Dashboard
+              session={session}
+              budget={budget}
+              month={month}
+              onInsight={handleInsight}
+              onAsk={handleEventSubmit}
+              onOpenBudget={() => setSection('budget')}
+            />
+          )}
+
+          {section === 'budget' && (
             <BudgetScreen
               budget={budget}
               profile={state.profile}
               customFunds={state.customFunds}
               hasNumbers={hasNumbers}
+              report={report}
+              fillKey={fillKey}
+              month={month}
+              steps={steps}
+              problem={error}
+              onMonthChange={setMonth}
               onChange={setBudget}
+              onAddFile={addFile}
               onUpdateProfile={handleBudgetProfile}
             />
-          ) : pendingEvent !== null ? (
-            budget || typing ? (
-              <QuestionFlow event={pendingEvent} connected={typing ? null : budget} onDone={handleAnswered} onBack={() => setPendingEvent(null)} />
-            ) : (
-              <ConnectStep event={pendingEvent} onConnected={setBudget} onTypeInstead={() => setTyping(true)} onBack={() => setPendingEvent(null)} />
-            )
+          )}
+
+          {section === 'connections' && (
+            <ConnectionsPage session={session} budget={budget} steps={steps} problem={error} onCheckGmail={connectGmail} onFile={(file) => void addFile(file)} />
+          )}
+
+          {section === 'plans' && (pendingEvent !== null ? (
+            <QuestionFlow event={pendingEvent} connected={budget} onDone={handleAnswered} onBack={() => setPendingEvent(null)} />
           ) : (
             <>
               {state.step === 'home' && (
                 <HomeScreen
                   profile={state.profile}
                   customFunds={state.customFunds}
-                  hasNumbers={hasNumbers}
                   appliedSummary={state.appliedSummary}
                   onProfileChange={handleProfileChange}
                   onCustomFundsChange={handleCustomFundsChange}
                   onSubmit={handleEventSubmit}
-                  onUseSample={handleUseSample}
-                  budgetLeft={budgetLeft}
-                  onOpenBudget={() => setSection('budget')}
                 />
               )}
 
@@ -452,9 +515,9 @@ export default function HomeClient() {
                 </div>
               )}
             </>
-          )}
-        </motion.main>
+          ))}
+        </motion.div>
       </AnimatePresence>
-    </div>
+    </AppShell>
   );
 }

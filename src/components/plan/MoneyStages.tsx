@@ -42,15 +42,13 @@ export default function MoneyStages({ cashflow }: MoneyStagesProps) {
           >
             <p className="truncate text-[14px] text-[var(--pf-text-secondary)]">{point.phase}</p>
             <p className="mt-1 font-serif text-[clamp(22px,3.6vh,36px)] leading-none">{formatMoney(Math.abs(point.amount))}</p>
-            <p className="mt-1 text-[13px] sm:text-[14px]">{short ? "short a month" : "left a month"}</p>
-            <div aria-hidden className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--pf-bg-elevated)]">
+            <p className="mt-1 text-[13px] sm:text-[14px]" style={{ color: short ? "var(--pf-warn)" : "var(--pf-good)" }}>{short ? "short a month" : "left a month"}</p>
+            <div aria-hidden className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--pf-bg-dark)]">
               <motion.div
                 className="h-full origin-left rounded-full"
                 style={{
                   width: `${Math.max(3, (Math.abs(point.amount) / scale) * 100)}%`,
-                  background: short
-                    ? "repeating-linear-gradient(-45deg, var(--pf-text-primary) 0 3px, var(--pf-bg-primary) 3px 6px)"
-                    : "var(--pf-text-primary)",
+                  background: short ? "var(--pf-warn)" : "var(--pf-good)",
                 }}
                 initial={{ scaleX: 0 }}
                 animate={{ scaleX: 1 }}

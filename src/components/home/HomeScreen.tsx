@@ -10,29 +10,15 @@ import { Ticking } from "@/components/ui/Ticking";
 import Sheet from "@/components/ui/Sheet";
 import Footer from "@/components/ui/Footer";
 import NumbersList from "./NumbersList";
-import SampleSheet from "./SampleSheet";
 
 interface HomeScreenProps {
   profile: FinancialProfile;
   customFunds: CustomFund[];
-  hasNumbers: boolean;
   appliedSummary?: AppliedSummary;
   onProfileChange: (profile: FinancialProfile) => void;
   onCustomFundsChange: (customFunds: CustomFund[]) => void;
   onSubmit: (event: string) => void;
-  onUseSample: () => void;
-  /** Left to spend this month, when a budget exists. */
-  budgetLeft: number | null;
-  onOpenBudget: () => void;
 }
-
-const FIRST_CHIPS = [
-  { label: "Having a baby", prompt: "We're having a baby", emoji: "" },
-  { label: "Buying a first home", prompt: "Buying my first home", emoji: "" },
-  { label: "Taking a career break", prompt: "Taking a 6 month career break", emoji: "" },
-  { label: "Paying off debt", prompt: "I want to pay off my debt", emoji: "" },
-  { label: "Lost my job", prompt: "I got laid off", emoji: "" },
-];
 
 const BALANCE_LABELS: Record<string, string> = {
   chequingBalance: "Chequing",
@@ -46,22 +32,15 @@ const BALANCE_LABELS: Record<string, string> = {
 export default function HomeScreen({
   profile,
   customFunds,
-  hasNumbers,
   appliedSummary,
   onProfileChange,
   onCustomFundsChange,
   onSubmit,
-  onUseSample,
-  budgetLeft,
-  onOpenBudget,
 }: HomeScreenProps) {
   const [summaryVisible, setSummaryVisible] = useState(true);
   const [showNumbers, setShowNumbers] = useState(false);
   const money = getMoneyPicture(profile, customFunds);
-  const chips = useMemo(
-    () => (hasNumbers ? getDynamicSuggestionChips(profile, customFunds, 5) : FIRST_CHIPS),
-    [hasNumbers, profile, customFunds],
-  );
+  const chips = useMemo(() => getDynamicSuggestionChips(profile, customFunds, 5), [profile, customFunds]);
 
   const changes = useMemo(() => {
     if (!appliedSummary) return [];
@@ -72,27 +51,6 @@ export default function HomeScreen({
   }, [appliedSummary]);
 
   const showSummary = summaryVisible && !!appliedSummary && appliedSummary.actions.length > 0;
-
-  if (!hasNumbers) {
-    return (
-      <div className="grid h-full min-h-0 items-center gap-x-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,460px)]">
-        <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "spring", bounce: 0, duration: 0.8 }}>
-          <h1 className="pf-title-xl font-serif">What&rsquo;s changing in your life?</h1>
-          <p className="mt-4 max-w-[500px] text-[17px] leading-relaxed text-[var(--pf-text-secondary)] sm:text-[18px]">
-            Tell Pathfinder and show it your spending. No passwords, no bank login, no typing in numbers.
-          </p>
-          <div className="mt-[clamp(20px,5vh,40px)]">
-            <PromptInput onSubmit={onSubmit} chips={chips} placeholder="We're having a baby in the spring" autoFocus />
-          </div>
-          <p className="mt-6 text-[14px] text-[var(--pf-text-tertiary)]">
-            Free, with no signup.{" "}
-            <button type="button" className="pf-link underline decoration-current" onClick={onUseSample}>Try it with sample numbers</button>
-          </p>
-        </motion.div>
-        <SampleSheet onOpen={onOpenBudget} />
-      </div>
-    );
-  }
 
   return (
     <div className="grid h-full min-h-0 gap-x-16 lg:grid-cols-[minmax(0,1fr)_380px]">
@@ -108,11 +66,6 @@ export default function HomeScreen({
               : <><span className="text-[var(--pf-text-primary)]">{formatMoney(-money.leftOver)}</span> short each month</>}
             {" · "}cash lasts <span className="text-[var(--pf-text-primary)]">{money.runwayMonths.toFixed(1)} months</span>
           </p>
-          {budgetLeft !== null && (
-            <button type="button" className="pf-link mt-1 text-[16px]" onClick={onOpenBudget}>
-              {budgetLeft >= 0 ? `${formatMoney(budgetLeft)} left in this month's budget` : `${formatMoney(-budgetLeft)} over this month's budget`} →
-            </button>
-          )}
 
           <AnimatePresence>
             {showSummary && (

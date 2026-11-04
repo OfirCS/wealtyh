@@ -1,4 +1,4 @@
-import { getMoneyPicture } from './money';
+import { formatMoney, getMoneyPicture } from './money';
 import type { StatementRow } from './statement';
 import type { CustomFund, FinancialProfile } from './types';
 
@@ -77,10 +77,10 @@ export function categoryName(id: string): string {
 const RULES: [string, RegExp][] = [
   [TRANSFER_ID, /e-?transfer|etfr|email money|\b(transfer|tfr)\b|payment.{0,12}(visa|mastercard|amex|thank|received)|(visa|mastercard|amex).{0,12}payment|\b(wealthsimple|questrade|tfsa|rrsp contribution)\b/i],
   ['housing', /\b(rent|mortgage|property tax|condo fee|strata)\b/i],
-  ['eating', /tim hortons|starbucks|mcdonald|subway|\ba&w\b|wendy|burger|pizza|sushi|restaurant|\bcafe\b|coffee|bistro|\bgrill\b|\bpub\b|uber\s?eats|doordash|skip\s?the\s?dishes|\bkfc\b|popeyes|harvey|shawarma/i],
+  ['eating', /tim hortons|starbucks|mcdonald|\b(lunch|dinner|breakfast|takeout)\b|subway|\ba&w\b|wendy|burger|pizza|sushi|restaurant|\bcafe\b|coffee|bistro|\bgrill\b|\bpub\b|uber\s?eats|doordash|skip\s?the\s?dishes|\bkfc\b|popeyes|harvey|shawarma/i],
   ['groceries', /loblaw|no\s?frills|\bmetro\b|sobeys|food basics|fresh\s?co|farm boy|\bt&t\b|superstore|safeway|save.?on|\biga\b|\bmaxi\b|provigo|costco|walmart|grocer|whole foods|longo|fortinos|zehrs|foodland/i],
   ['bills', /rogers|\bbell\b|telus|\bfido\b|koodo|virgin|freedom mobile|\bshaw\b|videotron|hydro|enbridge|fortis|utilit|insurance|netflix|spotify|disney|crave|apple\.com|icloud|google one|amazon prime|prime video/i],
-  ['transport', /\bshell\b|petro|\besso\b|ultramar|husky|pioneer|chevron|presto|\bttc\b|\bstm\b|translink|go transit|compass|\buber\b|\blyft\b|parking|impark|green\s?p\b|car wash|\b407\b/i],
+  ['transport', /\b(gas|fuel|taxi|bus|train)\b|\bshell\b|petro|\besso\b|ultramar|husky|pioneer|chevron|presto|\bttc\b|\bstm\b|translink|go transit|compass|\buber\b|\blyft\b|parking|impark|green\s?p\b|car wash|\b407\b/i],
   ['kids', /daycare|day care|childcare|child care|\bschool\b|tuition|\bkids?\b|\btoys?\b|\bcamp\b|\bresp\b/i],
   ['health', /shoppers|rexall|pharma|dental|dentist|doctor|clinic|physio|optical|goodlife|\bgym\b/i],
   ['shopping', /amazon|canadian tire|winners|homesense|marshalls|ikea|best buy|home depot|\blowe|the bay|old navy|\bgap\b|h&m|zara|sephora|indigo|dollarama|staples/i],
@@ -121,9 +121,10 @@ function toTransaction(row: StatementRow, merchantRules: Record<string, string>,
   };
 }
 
+/** Whole months of history, so a two-month statement divides by exactly two. */
 function monthsBetween(first: string, last: string): number {
   const days = (Date.parse(last) - Date.parse(first)) / 86_400_000 + 1;
-  return Math.max(1, days / 30.4);
+  return Math.max(1, Math.round(days / 30.4));
 }
 
 function roundUp(value: number, to: number): number {
@@ -144,6 +145,21 @@ export interface ImportSummary {
   regularBills: number;
   monthlySpend: number;
   monthlyIncome: number;
+  /** How many days of history the budget now has. */
+  coveredDays: number;
+}
+
+// Under two weeks of history, the monthly amounts are only a first guess
+const ENOUGH_DAYS = 14;
+
+/** What the agent says after adding data, in plain and honest words. */
+export function importMessage(summary: ImportSummary): string {
+  const added = `All done! I added ${summary.count} ${summary.count === 1 ? 'purchase' : 'purchases'}.`;
+  if (summary.coveredDays < ENOUGH_DAYS) {
+    return `${added} That's only ${summary.coveredDays} ${summary.coveredDays === 1 ? 'day' : 'days'} of spending, so the budget is a first guess. Add more and it gets better.`;
+  }
+  const income = summary.monthlyIncome > 0 ? ` and bring in about ${formatMoney(summary.monthlyIncome)}` : '';
+  return `${added} You spend about ${formatMoney(summary.monthlySpend)} a month${income}.`;
 }
 
 /** A merchant charged in two or more months for about the same amount. */
@@ -217,6 +233,9 @@ export function importStatement(
       regularBills: countRegularBills(transactions),
       monthlySpend: Math.round(monthlySpend),
       monthlyIncome: Math.round(monthlyIncome),
+      coveredDays: transactions.length > 0
+        ? Math.round((Date.parse(transactions[transactions.length - 1].date) - Date.parse(transactions[0].date)) / 86_400_000) + 1
+        : 0,
     },
   };
 }
@@ -344,7 +363,11 @@ export function parseQuickEntry(text: string): QuickEntry | null {
   if (!match) return null;
   const amount = Number(match[1].replace(/,/g, ''));
   if (!(amount > 0)) return null;
-  const description = text.replace(match[0], ' ').replace(/\s+/g, ' ').trim();
+  const description = text
+    .replace(match[0], ' ')
+    .replace(/\b(i|just|spent|paid|bought|got|on|for|at|from|dollars?|bucks?|yesterday|today)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   return description ? { amount, description } : null;
 }
 

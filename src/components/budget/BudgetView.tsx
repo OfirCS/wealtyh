@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import {
   addQuickEntry,
   categoryName,
+  importMessage,
   INCOME_ID,
   monthIncome,
   monthKey,
@@ -22,18 +23,20 @@ import {
   yearSummary,
 } from '@/lib/budget';
 import type { Budget, ImportSummary, TransactionSource } from '@/lib/budget';
+import { tidyName } from '@/lib/agent-insights';
 import { formatMoney } from '@/lib/money';
 import { playSound } from '@/lib/sounds';
 import { useElementSize } from '@/lib/use-element-height';
 import { useMediaQuery } from '@/lib/use-media';
 import type { FinancialProfile } from '@/lib/types';
+import AgentBubble from '@/components/ui/AgentBubble';
 import AgentSteps from '@/components/ui/AgentSteps';
 import type { AgentStep } from '@/components/ui/AgentSteps';
 import Sheet from '@/components/ui/Sheet';
 import { Ticking } from '@/components/ui/Ticking';
 import CanvasCard from './CanvasCard';
 import type { CardLayout } from './CanvasCard';
-import ConnectList from './ConnectList';
+import CategoryIcon from './CategoryIcon';
 import SheetGrid, { ITEM_DRAG_TYPE } from './SheetGrid';
 import type { SheetColumn, SheetRow } from './SheetGrid';
 
@@ -50,7 +53,6 @@ interface BudgetViewProps {
   onMonthChange: (month: string) => void;
   onChange: (budget: Budget) => void;
   onAddFile: (file: File, source?: TransactionSource) => void;
-  onAddText: (text: string) => void;
   onFromNumbers?: () => void;
   onUpdateProfile: (profile: FinancialProfile) => void;
   onStartOver: () => void;
@@ -66,17 +68,16 @@ const TABS: { id: Tab; label: string }[] = [
 
 const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-type CardId = 'summary' | 'connect' | 'month' | 'year' | 'transactions';
+type CardId = 'summary' | 'month' | 'year' | 'transactions';
 
 const DEFAULT_LAYOUT: Record<CardId, CardLayout> = {
-  summary: { x: 0, y: 0, w: 0.235, h: 0.25 },
-  connect: { x: 0, y: 0.27, w: 0.235, h: 0.4 },
-  transactions: { x: 0, y: 0.69, w: 0.235, h: 0.31 },
+  summary: { x: 0, y: 0, w: 0.235, h: 0.28 },
+  transactions: { x: 0, y: 0.3, w: 0.235, h: 0.7 },
   month: { x: 0.25, y: 0, w: 0.355, h: 1 },
   year: { x: 0.62, y: 0, w: 0.38, h: 1 },
 };
 
-const LAYOUT_KEY = 'pathfinder.canvas.v3';
+const LAYOUT_KEY = 'pathfinder.canvas.v5';
 
 function loadLayout(): Record<CardId, CardLayout> {
   try {
@@ -96,7 +97,7 @@ function saveLayout(layout: Record<CardId, CardLayout>) {
 }
 
 const CATEGORY_COLUMN = 124;
-const NUMBER_COLUMN = 76;
+const NUMBER_COLUMN = 72;
 const GUTTER = 34;
 
 function plain(value: number): string {
@@ -121,7 +122,6 @@ export default function BudgetView({
   onMonthChange,
   onChange,
   onAddFile,
-  onAddText,
   onFromNumbers,
   onUpdateProfile,
   onStartOver,
@@ -130,27 +130,21 @@ export default function BudgetView({
   const [entry, setEntry] = useState('');
   const [status, setStatus] = useState<string | null>(null);
   const [openCategory, setOpenCategory] = useState<string | null>(null);
-  const [showConnections, setShowConnections] = useState(false);
-  const [showPaste, setShowPaste] = useState(false);
-  const [showWallet, setShowWallet] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [pasted, setPasted] = useState('');
+  const [showSettings, setShowSettings] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [confirmingReset, setConfirmingReset] = useState(false);
   const [newCategory, setNewCategory] = useState('');
   const [dragging, setDragging] = useState(false);
   const [canvasRef, canvas] = useElementSize<HTMLDivElement>();
   const [layout, setLayout] = useState<Record<CardId, CardLayout>>(loadLayout);
-  const [order, setOrder] = useState<CardId[]>(['summary', 'connect', 'transactions', 'month', 'year']);
+  const [order, setOrder] = useState<CardId[]>(['summary', 'transactions', 'month', 'year']);
   const useCanvas = useMediaQuery('(min-width: 1024px)');
-  const fileInput = useRef<HTMLInputElement>(null);
 
   const summary = useMemo(() => monthSummary(budget, month), [budget, month]);
   const unsure = useMemo(() => nextUnsure(budget), [budget]);
   const year = Number(month.slice(0, 4));
   const yearData = useMemo(() => yearSummary(budget, year), [budget, year]);
 
-  const walletLink = `${window.location.origin}${window.location.pathname}?spent=AMOUNT&at=MERCHANT`;
   const today = new Date();
   const latestMonth = monthKey(today);
   const earliestMonth = budget.transactions[0]?.date.slice(0, 7) ?? latestMonth;
@@ -170,9 +164,11 @@ export default function BudgetView({
   };
 
   const addEntry = () => {
-    const parsed = parseQuickEntry(entry);
+    const text = entry.trim();
+    if (!text) return;
+    const parsed = parseQuickEntry(text);
     if (!parsed) {
-      setStatus('Try something like: 45 costco');
+      setStatus(/\d/.test(text) ? `What was that for? Try: ${text} groceries` : `How much was ${text}? Try: 20 ${text}`);
       return;
     }
     const date = month === latestMonth ? today.toISOString().slice(0, 10) : `${month}-15`;
@@ -208,10 +204,10 @@ export default function BudgetView({
       id: category.id,
       onOpen: () => setOpenCategory(category.id),
       cells: {
-        name: { text: category.name },
+        name: { text: category.name, node: <span className="flex min-w-0 items-center gap-2"><CategoryIcon id={category.id} /><span className="truncate">{category.name}</span></span> },
         budget: { text: plain(category.planned), value: category.planned },
         spent: { text: plain(spent) },
-        left: { text: plain(category.planned - spent), strong: spent > category.planned },
+        left: { text: plain(category.planned - spent), strong: spent > category.planned, tone: spent > category.planned ? 'warn' : undefined },
       },
     };
   });
@@ -221,7 +217,7 @@ export default function BudgetView({
       name: { text: 'Total', strong: true },
       budget: { text: plain(summary.planned), strong: true },
       spent: { text: plain(summary.spent), strong: true },
-      left: { text: plain(summary.left), strong: true },
+      left: { text: plain(summary.left), strong: true, tone: summary.left < 0 ? 'warn' : 'good' },
     },
   };
 
@@ -246,7 +242,7 @@ export default function BudgetView({
       id: category.id,
       onOpen: () => setOpenCategory(category.id),
       cells: {
-        name: { text: category.name },
+        name: { text: category.name, node: <span className="flex min-w-0 items-center gap-2"><CategoryIcon id={category.id} /><span className="truncate">{category.name}</span></span> },
         budget: { text: plain(category.planned), value: category.planned },
         total: { text: plain(Object.values(months).reduce((sum, value) => sum + value, 0)) },
         ...Object.fromEntries(shownMonths.map((index) => [keyOf(index), { text: plain(months[keyOf(index)] ?? 0) }])),
@@ -292,11 +288,11 @@ export default function BudgetView({
               title="Drag onto a category"
               className="cursor-grab truncate active:cursor-grabbing"
             >
-              {transaction.description}
+              {tidyName(transaction.description)}
             </div>
           ),
         },
-        amount: { text: plain(transaction.amount) },
+        amount: { text: transaction.amount.toLocaleString('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol' }) },
         source: { text: transaction.source ? SOURCE_LABELS[transaction.source] : '' },
         category: {
           text: categoryName(transaction.categoryId),
@@ -329,7 +325,7 @@ export default function BudgetView({
     .filter((item) => item.over > 0)
     .sort((a, b) => b.over - a.over)[0];
   const defaultStatus = report
-    ? `I read ${report.count} transactions. You spend about ${formatMoney(report.monthlySpend)} a month and bring in ${formatMoney(report.monthlyIncome)}.`
+    ? importMessage(report)
     : overspent
       ? `${overspent.name} is ${formatMoney(overspent.over)} over budget this month`
       : `${budget.transactions.length} transactions in this sheet`;
@@ -366,6 +362,7 @@ export default function BudgetView({
       rows={monthRows}
       total={monthTotal}
       fillKey={fillKey}
+      hint={ordered.length < 6 ? 'This keeps filling in as I find more of your spending.' : undefined}
       onEdit={(rowId, _column, value) => setPlanned(rowId, value)}
       onDropItem={dropOnCategory}
     />
@@ -406,18 +403,6 @@ export default function BudgetView({
         if (file) onAddFile(file);
       }}
     >
-      <input
-        ref={fileInput}
-        type="file"
-        accept=".csv,.txt,.pdf,image/*"
-        className="sr-only"
-        aria-label="Add a statement, screenshot or receipt"
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) onAddFile(file);
-          event.target.value = '';
-        }}
-      />
       <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
         {!useCanvas && (
           <div className="flex items-baseline gap-2">
@@ -432,29 +417,42 @@ export default function BudgetView({
           <span className="text-[var(--pf-text-primary)]">{monthLabel(month)}</span>
           <button type="button" aria-label="Next month" disabled={month >= latestMonth} className="cursor-pointer disabled:opacity-25" onClick={() => { onMonthChange(shiftMonth(month, 1)); playSound('tap'); }}>→</button>
         </span>
-        <div className="order-last flex h-10 min-w-[240px] flex-1 basis-full items-center rounded-full bg-[var(--pf-bg-elevated)] px-4 transition-shadow focus-within:shadow-[inset_0_0_0_2px_var(--pf-text-primary)] lg:order-none lg:basis-0">
+        <div className="order-last flex h-10 min-w-[240px] flex-1 basis-full items-center rounded-full bg-[var(--pf-bg-surface)] px-4 shadow-[inset_0_0_0_1px_var(--pf-border)] transition-shadow focus-within:shadow-[inset_0_0_0_2px_var(--pf-text-primary)] lg:order-none lg:basis-0">
           <label htmlFor="pf-quick" className="sr-only">Add spending</label>
           <input
             id="pf-quick"
             value={entry}
             onChange={(event) => setEntry(event.target.value)}
             onKeyDown={(event) => { if (event.key === 'Enter') addEntry(); }}
-            placeholder="Drop a screenshot, statement or receipt anywhere. I'll fill it in."
+            placeholder="Paid cash? Tell me: 45 costco"
             autoComplete="off"
             className="h-full min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-[var(--pf-text-tertiary)]"
           />
         </div>
         <div className="ml-auto flex items-center gap-4 text-[14px] lg:ml-0">
           {useCanvas && <button type="button" className="pf-link" onClick={tidyUp}>Tidy up</button>}
-          <button type="button" className="pf-link" onClick={() => setShowConnections(true)}>Connections</button>
-          <button type="button" className="pf-btn pf-btn-primary h-9 px-4 text-[14px]" onClick={() => { fileInput.current?.click(); playSound('tap'); }}>Add data</button>
+          <button type="button" className="pf-link" onClick={() => { setShowSettings(true); playSound('tap'); }}>Settings</button>
         </div>
       </div>
+
+      {!useCanvas && (
+        <div className="mt-2 flex shrink-0 items-center justify-between gap-2">
+          <AgentBubble
+            tone={problem ? 'problem' : status?.startsWith('✓') || report ? 'good' : 'normal'}
+            message={problem ?? status ?? (isSample ? 'Hi! This is a sample. Connect Gmail and I\'ll fill it in.' : defaultStatus)}
+          />
+          {unsure && !isSample && (
+            <button type="button" className="pf-pill shrink-0" onClick={() => { setReviewing(true); playSound('tap'); }}>
+              {unsure.remaining} to check
+            </button>
+          )}
+        </div>
+      )}
 
       <div
         ref={canvasRef}
         className={`relative mt-2 flex min-h-0 flex-1 flex-col ${useCanvas ? '-mx-2 overflow-hidden rounded-[16px] p-0' : ''}`}
-        style={useCanvas ? { backgroundImage: 'radial-gradient(var(--pf-border) 1px, transparent 1px)', backgroundSize: '12px 12px' } : undefined}
+        style={useCanvas ? { backgroundImage: 'radial-gradient(var(--pf-bg-dark) 1px, transparent 1px)', backgroundSize: '12px 12px' } : undefined}
       >
         {useCanvas ? (
           canvas.width > 0 && (
@@ -463,12 +461,9 @@ export default function BudgetView({
                 <div className="flex h-full flex-col justify-center px-1">
                   <p className="font-serif text-[clamp(28px,5vh,44px)] leading-none"><Ticking value={Math.abs(summary.left)} format={formatMoney} /></p>
                   <p className="mt-1 truncate text-[14px] text-[var(--pf-text-secondary)]">{summary.left >= 0 ? 'left to spend' : 'over budget'}</p>
-                  <p className="truncate text-[13px] text-[var(--pf-text-tertiary)]">{formatMoney(summary.spent)} of {formatMoney(summary.planned)}</p>
-                </div>
-              </CanvasCard>
-              <CanvasCard title="Connections" layout={layout.connect} canvas={canvas} zIndex={cardZ('connect')} onChange={(next) => updateCard('connect', next)} onFocus={() => bringForward('connect')}>
-                <div className="hide-scrollbar min-h-0 flex-1 overflow-hidden">
-                  <ConnectList compact budget={isSample ? null : budget} onFile={(file, source) => onAddFile(file, source)} onPaste={() => setShowPaste(true)} onAuto={() => setShowWallet(true)} />
+                  <div aria-hidden className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--pf-bg-elevated)]">
+                    <div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${Math.min(100, summary.planned > 0 ? (summary.spent / summary.planned) * 100 : 0)}%`, background: summary.left < 0 ? 'var(--pf-warn)' : 'var(--pf-good)' }} />
+                  </div>
                 </div>
               </CanvasCard>
               <CanvasCard title="Purchases" layout={layout.transactions} canvas={canvas} zIndex={cardZ('transactions')} onChange={(next) => updateCard('transactions', next)} onFocus={() => bringForward('transactions')}>
@@ -497,9 +492,9 @@ export default function BudgetView({
         )}
       </div>
 
-      <div className={`mt-1 flex h-9 shrink-0 items-stretch gap-3 ${useCanvas ? '' : 'border-t border-[var(--pf-text-primary)]'}`}>
+      <div className={`mt-2 flex min-h-9 shrink-0 items-center gap-3 ${useCanvas ? '' : 'border-t border-[var(--pf-border)]'}`}>
         {!useCanvas && (
-          <div role="tablist" aria-label="Sheets" className="flex shrink-0">
+          <div role="tablist" aria-label="Sheets" className="flex h-9 shrink-0">
             {TABS.map((item) => (
               <button
                 key={item.id}
@@ -514,13 +509,18 @@ export default function BudgetView({
             ))}
           </div>
         )}
-        <div className={`flex min-w-0 flex-1 items-center gap-3 text-[13px] text-[var(--pf-text-secondary)] ${useCanvas ? 'flex-row-reverse justify-end' : 'justify-end'}`}>
-          {unsure && !isSample && (
-            <button type="button" className="shrink-0 cursor-pointer font-semibold text-[var(--pf-text-primary)] underline underline-offset-4" onClick={() => { setReviewing(true); playSound('tap'); }}>
+        <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+          <div className="hidden min-w-0 sm:block">
+            <AgentBubble
+              tone={problem ? 'problem' : status?.startsWith('✓') || report ? 'good' : 'normal'}
+              message={problem ?? status ?? (isSample ? "Hi! This is a sample family. Connect Gmail and I'll fill this in with yours." : defaultStatus)}
+            />
+          </div>
+          {useCanvas && unsure && !isSample && (
+            <button type="button" className="pf-pill shrink-0" onClick={() => { setReviewing(true); playSound('tap'); }}>
               {unsure.remaining} to check
             </button>
           )}
-          <span className="hidden min-w-0 truncate sm:block" aria-live="polite">{problem ?? status ?? (isSample ? 'This is a sample family. Connect yours and I\'ll replace it.' : defaultStatus)}</span>
         </div>
       </div>
 
@@ -552,7 +552,7 @@ export default function BudgetView({
           <Sheet title="Help me sort this" onClose={() => setReviewing(false)}>
             {unsure ? (
               <div>
-                <p className="font-serif text-[24px] leading-tight">{unsure.transaction.description}</p>
+                <p className="font-serif text-[24px] leading-tight">{tidyName(unsure.transaction.description)}</p>
                 <p className="mt-1 text-[16px] text-[var(--pf-text-secondary)]">
                   {formatMoney(unsure.transaction.amount)} on {dayLabel(unsure.transaction.date)}
                   {unsure.sameMerchant > 1 ? `, and ${unsure.sameMerchant - 1} more like it` : ''}
@@ -575,80 +575,12 @@ export default function BudgetView({
           </Sheet>
         )}
 
-        {showPaste && (
-          <Sheet title="Paste a receipt or bank alert" onClose={() => setShowPaste(false)}>
-            <label htmlFor="pf-paste" className="sr-only">Pasted text</label>
-            <textarea
-              id="pf-paste"
-              autoFocus
-              rows={7}
-              value={pasted}
-              onChange={(event) => setPasted(event.target.value)}
-              placeholder="Paste a bank alert, order email or receipt"
-              className="w-full resize-none rounded-[12px] bg-[var(--pf-bg-elevated)] p-3 text-[15px] outline-none"
-            />
-            <p className="mt-2 text-[14px] text-[var(--pf-text-tertiary)]">Claude reads it to find the amounts.</p>
-            <button
-              type="button"
-              className="pf-btn pf-btn-primary mt-3 h-11 w-full"
-              disabled={pasted.trim().length < 8}
-              onClick={() => {
-                onAddText(pasted);
-                setPasted('');
-                setShowPaste(false);
-              }}
-            >
-              Fill in the sheet
-            </button>
-          </Sheet>
-        )}
 
-        {showWallet && (
-          <Sheet title="Every tap, automatically" onClose={() => setShowWallet(false)}>
-            <p className="text-[16px] leading-relaxed text-[var(--pf-text-secondary)]">Set this up once on your iPhone. After that, each Apple Pay tap lands in your sheet by itself. No password needed.</p>
-            <ol className="mt-3 flex flex-col gap-2 text-[16px]">
-              {[
-                'Open the Shortcuts app and tap Automation.',
-                'Tap the plus, then choose Transaction.',
-                'Pick your cards, then Run Immediately.',
-                'Add Open URLs and paste the link below.',
-                'Swap AMOUNT and MERCHANT for the blue Shortcut values.',
-              ].map((step, index) => (
-                <li key={step} className="flex items-center gap-3">
-                  <span aria-hidden className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--pf-text-primary)] text-[13px] text-[var(--pf-text-inverse)]">{index + 1}</span>
-                  {step}
-                </li>
-              ))}
-            </ol>
-            <div className="mt-3 flex items-center gap-3 rounded-[12px] bg-[var(--pf-bg-elevated)] p-3">
-              <code className="min-w-0 flex-1 break-all text-[13px]">{walletLink}</code>
-              <button
-                type="button"
-                className="pf-btn pf-btn-secondary h-9 shrink-0 px-4 text-[13px]"
-                onClick={() => {
-                  void navigator.clipboard?.writeText(walletLink);
-                  setCopied(true);
-                  playSound('pop');
-                }}
-              >
-                {copied ? '✓ Copied' : 'Copy'}
-              </button>
-            </div>
-            <p className="mt-2 text-[14px] text-[var(--pf-text-tertiary)]">Works once Pathfinder is online at a real address. In-store Apple Pay only, and it saves to the browser on that phone.</p>
-          </Sheet>
-        )}
-
-        {showConnections && (
-          <Sheet title="Connections" onClose={() => { setShowConnections(false); setConfirmingReset(false); }}>
-            <ConnectList
-              budget={isSample ? null : budget}
-              onFile={(file, source) => { setShowConnections(false); onAddFile(file, source); }}
-              onPaste={() => { setShowConnections(false); setShowPaste(true); }}
-              onAuto={() => { setShowConnections(false); setShowWallet(true); }}
-            />
-            <div className="mt-3 flex flex-col items-start gap-1 border-t border-[var(--pf-border)] pt-3">
+        {showSettings && (
+          <Sheet title="Budget settings" onClose={() => { setShowSettings(false); setConfirmingReset(false); }}>
+            <div className="flex flex-col items-start gap-2">
               {isSample && onFromNumbers && (
-                <button type="button" className="pf-link text-[15px]" onClick={() => { setShowConnections(false); onFromNumbers(); playSound('success'); }}>Start from my Pathfinder numbers</button>
+                <button type="button" className="pf-link text-[15px]" onClick={() => { setShowSettings(false); onFromNumbers(); playSound('success'); }}>Start from my Pathfinder numbers</button>
               )}
               {hasNumbers && !isSample && (
                 <button
@@ -657,14 +589,14 @@ export default function BudgetView({
                   onClick={() => {
                     onUpdateProfile(profileWithBudget(profile, budget));
                     setStatus('✓ Your plans now use this budget');
-                    setShowConnections(false);
+                    setShowSettings(false);
                     playSound('success');
                   }}
                 >
                   Use this budget in my plans
                 </button>
               )}
-              <div className="mt-1 flex w-full items-center gap-3">
+              <div className="flex w-full items-center gap-3">
                 <label htmlFor="pf-new-category" className="sr-only">New category</label>
                 <input
                   id="pf-new-category"
@@ -676,17 +608,17 @@ export default function BudgetView({
                 />
                 <button type="button" className="pf-link" onClick={addCategory}>Add</button>
               </div>
-              <p className="mt-1 text-[14px] text-[var(--pf-text-secondary)]">
+              <p className="text-[14px] text-[var(--pf-text-secondary)]">
                 Money in: {formatMoney(received > 0 ? received : budget.income)} · Budgeted: {formatMoney(totalPlanned(budget))}
               </p>
               {!isSample && (confirmingReset ? (
-                <span className="mt-1 flex items-center gap-4 text-[14px]">
+                <span className="flex items-center gap-4 text-[14px]">
                   Delete this budget?
                   <button type="button" className="pf-link underline decoration-current" onClick={onStartOver}>Yes, delete it</button>
                   <button type="button" className="pf-link" onClick={() => setConfirmingReset(false)}>Keep it</button>
                 </span>
               ) : (
-                <button type="button" className="pf-link mt-1" onClick={() => setConfirmingReset(true)}>Start over</button>
+                <button type="button" className="pf-link" onClick={() => setConfirmingReset(true)}>Start over</button>
               ))}
             </div>
           </Sheet>

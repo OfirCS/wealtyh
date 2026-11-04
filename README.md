@@ -17,37 +17,58 @@ That's all you need. With no keys it uses the built-in planner. To turn on the l
 cp .env.example .env   # then paste in your ANTHROPIC_API_KEY
 ```
 
-## What's in it
+## The journey
 
-**Plan.** Say what's changing, connect your spending, and the agent answers in one sentence, shows your money today, during the change and after it, then lists the steps. With a key it searches the web for current rates and shows its sources. Fixed rules then check every dollar against your real balances.
+1. **Landing:** see the agent at work, then get started.
+2. **Sign in:** one click with Google, which connects Gmail at the same time. Or try the demo account, which uses a made-up family.
+3. **Agent run:** the agent searches the inbox, reads receipts and bank alerts, sorts spending, and builds the budget while you watch.
+4. **Dashboard:** money left, what your agent wants to raise, bills coming up, where it's going, and latest purchases.
 
-**Budget.** A board of real spreadsheets you can drag, resize and edit like Excel. Click a cell and type. Drag a purchase onto a category to sort it, and the agent remembers that merchant. It opens on a sample family until you connect your own.
+From there:
 
-## Connecting without a bank login
+- **Budget** is a board of real spreadsheets you can drag, resize and edit. Click a cell and type. Drag a purchase onto a category to sort it, and the agent remembers that merchant.
+- **Plans** answers "can I afford this?" in one sentence, with your money today, during the change and after. With a key it searches the web for current rates and shows its sources. Fixed rules then check every dollar against your real balances.
+- **Connections** shows where your agent looks.
 
-| Source | How | Status |
+## How the agent gets your spending
+
+No bank login. You connect once and the agent does the rest.
+
+| Connection | What happens | Status |
 | --- | --- | --- |
-| Bank or card statement (CSV) | Drop the file. Read in your browser and never uploaded. | Works now |
-| PDF statement | Drop the file. Claude reads it. | Works now, needs a key |
-| Apple Wallet screenshot | Drop the picture. Claude reads it. | Works now, needs a key |
-| Email receipt or bank alert | Paste it. Claude reads it. | Works now, needs a key |
-| Every Apple Pay tap | An iPhone Shortcut opens `/?spent=AMOUNT&at=MERCHANT` | Built, needs the site online. Not yet tried on a real iPhone. |
-| Forwarded bank alert emails | A personal address that alerts get forwarded to | Not built. Needs a server and accounts. |
+| Gmail | Signing in with Google lets the agent search your inbox for receipts and bank alerts, read them with Claude, and fill in your budget. "Check for new" picks up anything since. | Built. Needs a Google client ID. |
+| Apple Pay | An iPhone Shortcut opens `/?spent=AMOUNT&at=MERCHANT` after each tap | Built. Needs the site online. |
+| Bank statement | A CSV is read in your browser and never uploaded. A PDF is read by Claude. | Works now, as a fallback |
 
-Apple does not let websites read Wallet, and its FinanceKit API only reaches native apps. Canada's open banking law has passed but isn't live yet.
+For the best results, turn on an email alert for every purchase in your banking app. Then your bank spending reaches Gmail too.
+
+Apple doesn't let websites read Wallet, and FinanceKit only reaches native apps. Canada's open banking law has passed but isn't live yet.
+
+## Turn on Gmail
+
+You do this once, as the site owner. People using the app just click Continue with Google.
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) and create a project.
+2. Under APIs & Services, enable the **Gmail API**.
+3. Under Google Auth Platform, set up the consent screen as **External**, and add your own email as a **test user**.
+4. Under Clients, create an **OAuth client** of type **Web application**.
+5. Add `http://localhost:3003` to **Authorized JavaScript origins**.
+6. Copy the client ID into `.env` as `NEXT_PUBLIC_GOOGLE_CLIENT_ID`, then restart `npm run dev`.
+
+Test mode allows up to 100 people you add by hand. Opening it to everyone means going through Google's verification for Gmail access, including a security review.
 
 ## Stack and cost
 
-- Next.js 16, TypeScript, Tailwind and Framer Motion, with no database. Your numbers stay in the browser unless you use an AI feature.
+- Next.js 16, TypeScript, Tailwind and Framer Motion, with no database or server accounts. Sign-in and your numbers live in the browser, so a second device starts fresh. Email and plan details go to AI services to be read.
 - Plans use Claude Sonnet, with Claude Haiku for the quick first steps. Gemini is a fallback if a Google key is set.
-- Live search and reading files use Claude Opus 5.5 at low effort, with a server-side fallback if a request is refused. Search uses Google grounding instead if a Google key is set.
+- Live search and reading email and PDFs use Claude Opus 5.5 at low effort, with a server-side fallback if a request is refused. Search uses Google grounding instead if a Google key is set.
 - A real plan with live search takes about a minute. Rate limits default to 20 requests per IP and 1,000 a day overall.
 
 ## Deploy
 
 Vercel: import the repo and set your environment variables. For heavy traffic, swap `src/lib/rate-limit.ts` for a shared store.
 
-GitHub Pages: `npm run build:static` makes a static site. It has no server, so it uses the built-in planner, and reading pictures and PDFs is turned off.
+GitHub Pages: `npm run build:static` makes a static site. It has no server, so it uses the built-in planner, and reading email and PDFs is turned off.
 
 ## Sponsor slot
 

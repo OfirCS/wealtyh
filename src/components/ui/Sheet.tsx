@@ -21,12 +21,12 @@ export default function Sheet({ title, onClose, children }: SheetProps) {
 
   return (
     <motion.div className="fixed inset-0 z-40 flex items-end justify-center sm:items-center sm:p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.16 }}>
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} aria-hidden />
+      <div className="absolute inset-0 bg-[#1C1B18]/30" onClick={onClose} aria-hidden />
       <motion.div
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="relative flex max-h-[92dvh] w-full max-w-[640px] flex-col rounded-t-[22px] bg-[var(--pf-bg-primary)] p-6 sm:rounded-[22px]"
+        className="relative flex max-h-[92dvh] w-full max-w-[640px] flex-col rounded-t-[22px] bg-[var(--pf-bg-surface)] p-6 sm:rounded-[24px]"
         initial={{ y: 28 }}
         animate={{ y: 0 }}
         exit={{ y: 20 }}

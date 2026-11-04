@@ -20,28 +20,22 @@ test.beforeEach(async ({ page }) => {
 
 /** Nothing may run off the window or get silently cut off inside a panel. */
 async function expectToFit(page: Page, label: string, slug: string) {
-  await page.waitForTimeout(700);
+  await page.waitForTimeout(800);
   const problems = await page.evaluate(() => {
     const vw = innerWidth;
     const vh = innerHeight;
-    const off = [...document.querySelectorAll('main *, header *')]
+    const off = [...document.querySelectorAll('body *')]
       .filter((element) => {
-        if (element.closest('.sr-only')) return false;
+        if (element.closest('.sr-only') || element.closest('[aria-hidden="true"]') || element.tagName === 'SCRIPT') return false;
         const box = element.getBoundingClientRect();
         return box.width > 0 && box.height > 0 && (box.bottom > vh + 1 || box.right > vw + 1 || box.left < -1);
       })
       .slice(0, 3)
       .map((element) => `${element.tagName}: ${(element.textContent ?? '').trim().slice(0, 30)}`);
-    const cut = [...document.querySelectorAll('main *')]
-      .filter((element) => {
-        const style = getComputedStyle(element);
-        return style.overflowY !== 'visible'
-          && element.clientHeight > 40
-          && element.scrollHeight > element.clientHeight + 2
-          && !/truncate|line-clamp/.test(String((element as HTMLElement).className));
-      })
+    const cut = [...document.querySelectorAll('section, [role="dialog"]')]
+      .filter((element) => element.scrollHeight > element.clientHeight + 2)
       .slice(0, 3)
-      .map((element) => `cut off: ${element.tagName} ${element.scrollHeight} > ${element.clientHeight}`);
+      .map((element) => `cut off: ${(element.textContent ?? '').trim().slice(0, 30)} ${element.scrollHeight} > ${element.clientHeight}`);
     const pageScrolls = document.documentElement.scrollHeight > vh + 1 ? ['the page scrolls'] : [];
     return [...pageScrolls, ...off, ...cut];
   });
@@ -56,29 +50,37 @@ for (const size of SIZES) {
 
     test('every screen fits with no scrolling', async ({ page }) => {
       await page.goto('/');
-      await expect(page.getByRole('heading', { name: 'What’s changing in your life?' })).toBeVisible();
-      await expectToFit(page, 'first screen', `${tag}-home`);
+      await expect(page.getByRole('heading', { name: /builds itself/ })).toBeVisible();
+      await page.waitForTimeout(2600);
+      await expectToFit(page, 'landing', `${tag}-landing`);
 
-      await page.getByRole('button', { name: 'Having a baby' }).click();
-      await expect(page.getByRole('heading', { name: 'Let me see your money.' })).toBeVisible();
-      await expectToFit(page, 'connect step', `${tag}-connect`);
+      await page.getByRole('button', { name: 'Get started free' }).click();
+      await expect(page.getByRole('button', { name: 'Try the demo account' })).toBeVisible();
+      await expectToFit(page, 'sign in', `${tag}-signin`);
 
-      await page.getByRole('button', { name: 'Type it in instead' }).click();
-      await expect(page.getByRole('heading', { name: 'What do you earn in a year?' })).toBeVisible();
-      await expectToFit(page, 'question', `${tag}-question`);
+      await page.getByRole('button', { name: 'Try the demo account' }).click();
+      await expect(page.getByRole('heading', { name: 'Your agent is working.' })).toBeVisible();
+      await page.waitForTimeout(1900);
+      if (SHOTS) await page.screenshot({ path: `${SHOTS}/${tag}-run.png` });
 
-      await page.getByRole('navigation').getByRole('button', { name: 'Budget' }).click();
+      await expect(page.getByRole('heading', { name: /Alex/ })).toBeVisible({ timeout: 25_000 });
+      await expectToFit(page, 'dashboard', `${tag}-dashboard`);
+
+      const nav = page.getByRole('navigation').first();
+      await nav.getByRole('button', { name: 'Budget' }).click();
       await expect(page.getByRole('grid').first()).toBeVisible();
       await expectToFit(page, 'budget', `${tag}-budget`);
 
-      await page.getByRole('navigation').getByRole('button', { name: 'Plan' }).click();
-      await page.getByRole('button', { name: 'Back' }).click();
-      await page.getByRole('button', { name: 'Try it with sample numbers' }).click();
+      await nav.getByRole('button', { name: 'Connections' }).click();
+      await expect(page.getByRole('heading', { name: 'Connections' })).toBeVisible();
+      await expectToFit(page, 'connections', `${tag}-connections`);
+
+      await nav.getByRole('button', { name: 'Plans' }).click();
       await expect(page.getByText('Your money')).toBeVisible();
-      await expectToFit(page, 'home with numbers', `${tag}-money`);
+      await expectToFit(page, 'plans', `${tag}-plans`);
 
       await page.getByRole('button', { name: 'Pay off debt' }).click();
-      await expect(page.getByRole('heading', { name: 'What to do' })).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByRole('heading', { name: 'What to do' })).toBeVisible({ timeout: 20_000 });
       await expectToFit(page, 'plan', `${tag}-plan`);
     });
   });

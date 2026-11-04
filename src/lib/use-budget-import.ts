@@ -1,9 +1,11 @@
 import { useCallback, useState } from 'react';
 import { defaultMonth, importStatement } from './budget';
 import type { Budget, ImportSummary, TransactionSource } from './budget';
-import { readFileWithAgent, readTextWithAgent } from './budget-agent';
+import { readEmailsWithAgent, readPdfWithAgent } from './budget-agent';
+import { fetchGoogleUser, findReceiptEmails, GmailError, lastGmailCheck, readEmails, rememberGmailCheck, requestGmailAccess } from './gmail';
 import { formatMoney } from './money';
 import { playSound } from './sounds';
+import { sampleStatement } from './sample-statement';
 import { parseStatement, StatementError } from './statement';
 import type { StatementRow } from './statement';
 import type { AgentStep } from '@/components/ui/AgentSteps';
@@ -26,12 +28,14 @@ interface ImportOptions {
   budget: Budget | null;
   fallbackIncome: number;
   onImported: (budget: Budget, summary: ImportSummary, month: string) => void;
+  onUser?: (user: { name: string; email: string }) => void;
 }
 
-/** Everything the agent does to turn a file, picture or pasted text into budget rows. */
-export function useBudgetImport({ budget, fallbackIncome, onImported }: ImportOptions) {
+/** Everything the agent does to turn an inbox or a statement into budget rows. */
+export function useBudgetImport({ budget, fallbackIncome, onImported, onUser }: ImportOptions) {
   const [steps, setSteps] = useState<AgentStep[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [found, setFound] = useState<StatementRow[]>([]);
 
   const fillSheet = useCallback(async (rows: StatementRow[], source: TransactionSource, done: AgentStep[]) => {
     const { budget: next, summary } = importStatement(rows, budget, fallbackIncome, source);
@@ -98,21 +102,88 @@ export function useBudgetImport({ budget, fallbackIncome, onImported }: ImportOp
   }, [fillSheet]);
 
   const addFile = useCallback(async (file: File, source: TransactionSource = 'agent') => {
-    if (/\.(xlsx?|ofx|qfx|numbers)$/i.test(file.name)) {
-      setError(`I can't open ${file.name.split('.').pop()?.toUpperCase()} files yet. Try a CSV, PDF or screenshot.`);
-      return;
-    }
     if (isCsv(file)) {
       await importCsv(await file.text());
       return;
     }
-    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
-    await readWithAgent(isPdf ? 'Reading your PDF' : 'Reading your picture', source, () => readFileWithAgent(file));
+    if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+      await readWithAgent('Reading your statement', source, () => readPdfWithAgent(file));
+      return;
+    }
+    setError("I can read CSV and PDF statements. Try downloading one of those from your bank.");
   }, [importCsv, readWithAgent]);
 
-  const addText = useCallback((text: string) => {
-    void readWithAgent('Reading what you pasted', 'mail', () => readTextWithAgent(text));
-  }, [readWithAgent]);
+  const connectGmail = useCallback(async () => {
+    setError(null);
+    const started = Date.now();
+    const finished: AgentStep[] = [];
+    const show = (step: AgentStep) => setSteps([...finished, step]);
+    const complete = (step: AgentStep) => {
+      finished.push(step);
+      playSound('tap');
+      setSteps([...finished]);
+    };
 
-  return { steps, error, addFile, addText, importCsv };
+    try {
+      show({ id: 'google', label: 'Connecting to Gmail', status: 'active' });
+      const token = await requestGmailAccess();
+      onUser?.(await fetchGoogleUser(token));
+      complete({ id: 'google', label: 'Connected to Gmail', status: 'complete' });
+
+      const since = lastGmailCheck();
+      show({ id: 'search', label: 'Looking through your inbox', status: 'active' });
+      const ids = await findReceiptEmails(token, since);
+      if (ids.length === 0) {
+        rememberGmailCheck(started);
+        setSteps(null);
+        setError(since ? "You're all caught up. Nothing new since I last looked." : "I looked, but didn't find any receipts or bank alerts in the last 90 days.");
+        return;
+      }
+      complete({ id: 'search', label: 'Looked through your inbox', status: 'complete', detail: `${ids.length} emails about money` });
+
+      show({ id: 'read', label: 'Reading your receipts', status: 'active', detail: `0 of ${ids.length}` });
+      const emails = await readEmails(token, ids, (done) => {
+        show({ id: 'read', label: 'Reading your receipts', status: 'active', detail: `${done} of ${ids.length}` });
+      });
+      show({ id: 'read', label: 'Picking out your purchases', status: 'active' });
+      const rows = await readEmailsWithAgent(emails);
+      if (rows.length === 0) {
+        rememberGmailCheck(started);
+        setSteps(null);
+        setError("I read those emails, but none of them were real purchases.");
+        return;
+      }
+      complete({ id: 'read', label: 'Read your receipts', status: 'complete', detail: `${rows.length} purchases found` });
+      setFound(rows.filter((row) => row.amount > 0));
+
+      rememberGmailCheck(started);
+      await fillSheet(rows, 'mail', finished);
+    } catch (problem) {
+      setSteps(null);
+      const friendly = problem instanceof GmailError || problem instanceof StatementError;
+      setError(friendly ? problem.message : 'Something went wrong while reading your email. Try again in a moment.');
+    }
+  }, [fillSheet, onUser]);
+
+  /** The same run with a made-up family's money, so anyone can see the whole flow. */
+  const runDemo = useCallback(async () => {
+    const rows = parseStatement(sampleStatement(new Date()));
+    const spending = rows.filter((row) => row.amount > 0);
+    const finished: AgentStep[] = [];
+    const step = async (id: string, active: string, done: string, detail: string) => {
+      setSteps([...finished, { id, label: active, status: 'active' }]);
+      await wait(STEP_PAUSE_MS * 1.5);
+      finished.push({ id, label: done, status: 'complete', detail });
+      playSound('tap');
+      setSteps([...finished]);
+    };
+
+    await step('google', 'Opening the demo inbox', 'Opened the demo inbox', '');
+    await step('search', 'Looking through the inbox', 'Looked through the inbox', `${rows.length} emails about money`);
+    setFound(spending);
+    await step('read', 'Reading the receipts', 'Read the receipts', `${spending.length} purchases found`);
+    await fillSheet(rows, 'mail', finished);
+  }, [fillSheet]);
+
+  return { steps, error, found, addFile, connectGmail, runDemo, importCsv };
 }
