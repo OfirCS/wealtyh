@@ -8,10 +8,11 @@ import type { AppliedSummary, CustomFund, FinancialProfile } from "@/lib/types";
 import PromptInput from "@/components/prompt/PromptInput";
 import { Ticking } from "@/components/ui/Ticking";
 import Sheet from "@/components/ui/Sheet";
-import Footer from "@/components/ui/Footer";
 import NumbersList from "./NumbersList";
 
 interface HomeScreenProps {
+  /** Without real numbers there's nothing true to show yet, so this only asks. */
+  hasNumbers: boolean;
   profile: FinancialProfile;
   customFunds: CustomFund[];
   appliedSummary?: AppliedSummary;
@@ -30,6 +31,7 @@ const BALANCE_LABELS: Record<string, string> = {
 };
 
 export default function HomeScreen({
+  hasNumbers,
   profile,
   customFunds,
   appliedSummary,
@@ -53,8 +55,9 @@ export default function HomeScreen({
   const showSummary = summaryVisible && !!appliedSummary && appliedSummary.actions.length > 0;
 
   return (
-    <div className="grid h-full min-h-0 gap-x-16 lg:grid-cols-[minmax(0,1fr)_380px]">
+    <div className={`grid h-full min-h-0 gap-x-16 ${hasNumbers ? "lg:grid-cols-[minmax(0,1fr)_380px]" : "mx-auto max-w-[640px]"}`}>
       <div className="flex min-h-0 flex-col justify-center gap-[clamp(20px,4.5vh,44px)]">
+        {hasNumbers && (
         <motion.section initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "spring", bounce: 0, duration: 0.7 }}>
           <p className="text-[15px] text-[var(--pf-text-secondary)]">Your money</p>
           <h1 className="pf-amount mt-1 font-serif">
@@ -62,7 +65,7 @@ export default function HomeScreen({
           </h1>
           <p className="mt-3 text-[16px] text-[var(--pf-text-secondary)]">
             {money.leftOver >= 0
-              ? <><span className="text-[var(--pf-text-primary)]">{formatMoney(money.leftOver)}</span> left each month</>
+              ? <><span className="text-[var(--pf-text-primary)]">{formatMoney(money.leftOver)}</span> not budgeted each month</>
               : <><span className="text-[var(--pf-text-primary)]">{formatMoney(-money.leftOver)}</span> short each month</>}
             {" · "}cash lasts <span className="text-[var(--pf-text-primary)]">{money.runwayMonths.toFixed(1)} months</span>
           </p>
@@ -82,15 +85,17 @@ export default function HomeScreen({
           </AnimatePresence>
         </motion.section>
 
+        )}
+
         <section>
           <h2 className="mb-3 font-serif text-[clamp(22px,3.6vh,32px)] leading-tight">What&rsquo;s changing?</h2>
-          <PromptInput onSubmit={onSubmit} chips={chips} placeholder="Tell me what's coming up" />
+          <PromptInput onSubmit={onSubmit} chips={hasNumbers ? chips : []} placeholder="Tell me what's coming up" />
         </section>
 
-        <button type="button" className="pf-link self-start lg:hidden" onClick={() => setShowNumbers(true)}>See my numbers</button>
+        {hasNumbers && <button type="button" className="pf-link self-start lg:hidden" onClick={() => setShowNumbers(true)}>See my numbers</button>}
       </div>
 
-      <aside className="hidden min-h-0 flex-col justify-center lg:flex">
+      {hasNumbers && <aside className="hidden min-h-0 flex-col justify-center lg:flex">
         <NumbersList
           compact
           profile={profile}
@@ -102,8 +107,7 @@ export default function HomeScreen({
         <p className="mt-5 text-[13px] leading-relaxed text-[var(--pf-text-tertiary)]">
           For learning, not financial advice.
         </p>
-        <div className="mt-1"><Footer /></div>
-      </aside>
+      </aside>}
 
       <AnimatePresence>
         {showNumbers && (

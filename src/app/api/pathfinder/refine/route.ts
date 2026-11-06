@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenAI } from '@google/genai';
+import { draftPlan } from '@/lib/plan-model';
 import { buildPathfinderSystemPrompt, buildUserMessage } from '@/lib/prompts';
 import { parsePathfinderResult, applyPostParseGuardrails } from '@/lib/pathfinder-engine';
 import { getCanadianRuleSet } from '@/lib/prompts';
@@ -25,15 +25,7 @@ async function callRefine(system: string, userMessage: string): Promise<string> 
 
   if (anthropicKey) {
     try {
-      const claude = new Anthropic({ apiKey: anthropicKey });
-      const msg = await claude.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 16384,
-        system,
-        messages: [{ role: 'user', content: userMessage }],
-        temperature: 0.3,
-      });
-      const text = msg.content[0]?.type === 'text' ? msg.content[0].text : '';
+      const text = await draftPlan(anthropicKey, system, userMessage);
       if (text) return text;
     } catch (err) {
       console.warn('[Refine] Claude failed, falling back to Gemini:', err instanceof Error ? err.message : String(err));
@@ -55,7 +47,7 @@ async function callRefine(system: string, userMessage: string): Promise<string> 
 }
 
 export async function POST(request: NextRequest) {
-  const limit = checkRateLimit(request);
+  const limit = await checkRateLimit(request);
   if (!limit.ok) {
     return NextResponse.json(
       { error: 'Rate limit exceeded', retryAfter: limit.retryAfterSeconds },

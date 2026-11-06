@@ -127,25 +127,37 @@ export async function callPathfinderStream(
 
   const decoder = new TextDecoder();
   let buffer = '';
+  let finished = false;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('data: ')) {
-        try {
-          const data = JSON.parse(trimmed.slice(6));
-          onEvent(data as StreamEvent);
-        } catch {
-          // Skip malformed events
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(trimmed.slice(6)) as StreamEvent;
+            if (data.type === 'complete' || data.type === 'error') finished = true;
+            onEvent(data);
+          } catch {
+            // Skip malformed events
+          }
         }
       }
     }
+  } catch {
+    // The connection dropped. The check below still gets the person an answer.
+  }
+
+  // A hosting limit can end the stream with no warning, and nobody should be left waiting on it
+  if (!finished) {
+    const { runLocalStream } = await import('./local-plan');
+    await runLocalStream(profile, customFunds, lifeEvent, onEvent);
   }
 }

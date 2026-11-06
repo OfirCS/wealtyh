@@ -1,6 +1,21 @@
-// Reads bank and credit card CSV exports in the browser, so a statement never
-// has to leave the device. Canadian banks each use their own layout, some with
+// Reads bank and credit card CSV exports in the browser, so a whole statement
+// never leaves the device. Only the names of stores the rules don't recognize go
+// to the agent, to be sorted. Canadian banks each use their own layout, some with
 // no header row at all, so columns are worked out from their contents.
+
+import type { Repeats, Sighting } from '@/core/ledger/types';
+
+export type { Repeats };
+
+/** A date someone could miss and lose money. Banks never see these, but receipts do. */
+export interface Deadline {
+  kind: 'return' | 'trial' | 'refund';
+  /** A few words naming the item. */
+  what: string;
+  /** YYYY-MM-DD */
+  date: string;
+  amount?: number;
+}
 
 export interface StatementRow {
   /** YYYY-MM-DD */
@@ -8,6 +23,20 @@ export interface StatementRow {
   description: string;
   /** Positive is money spent, negative is money received. */
   amount: number;
+  /** Read from an email, which only ever shows money that left or came back. */
+  emailed?: boolean;
+  /** Where the agent thinks this belongs, having read the whole receipt. */
+  category?: string;
+  /** An Apple Pay tap, sent over from the user's iPhone. */
+  tapped?: boolean;
+  /** Set when the agent saw this will charge again by itself. */
+  repeats?: Repeats;
+  /** The next charge, when the email states it. YYYY-MM-DD */
+  renews?: string;
+  /** The agent read this as a one-off, like a flight or a sofa. */
+  once?: boolean;
+  /** What a connected source reported, when this row came from one. */
+  sighting?: Sighting;
 }
 
 export class StatementError extends Error {}
@@ -239,14 +268,32 @@ export function parseStatement(text: string): StatementRow[] {
 }
 
 /** Checks rows that came back from the agent before they reach the budget. */
+export function cleanDeadlines(items: unknown, today: string): Deadline[] {
+  if (!Array.isArray(items)) return [];
+  return items.flatMap((item): Deadline[] => {
+    const { kind, what, date, amount } = (item ?? {}) as Record<string, unknown>;
+    if (kind !== 'return' && kind !== 'trial' && kind !== 'refund') return [];
+    if (typeof what !== 'string' || !what.trim() || typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date) || date < today) return [];
+    return [{ kind, what: what.trim().slice(0, 60), date, ...(typeof amount === 'number' && amount > 0 ? { amount } : {}) }];
+  });
+}
+
 export function cleanAgentRows(rows: unknown, today: string): StatementRow[] {
   if (!Array.isArray(rows)) return [];
   return rows.flatMap((row): StatementRow[] => {
-    const { date, description, amount } = (row ?? {}) as Record<string, unknown>;
+    const { date, description, amount, category, repeats, renews, once } = (row ?? {}) as Record<string, unknown>;
     if (typeof description !== 'string' || typeof amount !== 'number' || !Number.isFinite(amount) || amount === 0) return [];
     const text = description.replace(/\s+/g, ' ').trim().slice(0, 120);
     if (!text) return [];
     const iso = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : today;
-    return [{ date: iso, description: text, amount: Math.round(amount * 100) / 100 }];
+    return [{
+      date: iso,
+      description: text,
+      amount: Math.round(amount * 100) / 100,
+      ...(typeof category === 'string' ? { category } : {}),
+      ...(repeats === 'weekly' || repeats === 'monthly' || repeats === 'yearly' ? { repeats } : {}),
+      ...(typeof renews === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(renews) ? { renews } : {}),
+      ...(once === true ? { once: true } : {}),
+    }];
   });
 }

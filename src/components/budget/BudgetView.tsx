@@ -1,394 +1,342 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
-import { AnimatePresence } from 'framer-motion';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { ChevronLeft, ChevronRight, ExternalLink, FolderInput, Pencil, Pin, Plus, Receipt, RotateCcw, Settings2, Ticket, Trash2 } from 'lucide-react';
 import {
-  addQuickEntry,
-  categoryName,
-  importMessage,
-  INCOME_ID,
+  dailySpending,
+  daysInMonth,
+  deleteTransaction,
+  merchantKey,
   monthIncome,
   monthKey,
   monthLabel,
-  monthSummary,
   nextUnsure,
-  parseQuickEntry,
   profileWithBudget,
+  purchaseRhythms,
+  removeCategory,
+  renameCategory,
+  setMerchantRhythm,
+  setPlanned,
   shiftMonth,
+  autoBudget,
   sortMerchant,
   SORTABLE_CATEGORIES,
-  SOURCE_LABELS,
+  suggestBudgets,
+  togglePinned,
   totalPlanned,
+  typicalSpending,
   TRANSFER_ID,
-  yearSummary,
+  updateTransaction,
 } from '@/lib/budget';
-import type { Budget, ImportSummary, TransactionSource } from '@/lib/budget';
+import type { Budget, Rhythm, TransactionChange, TransactionSource } from '@/lib/budget';
+import { answerQuestion } from '@/lib/ledger-adapter';
 import { tidyName } from '@/lib/agent-insights';
 import { formatMoney } from '@/lib/money';
+import { categoryLabel, everydayName, monthPicture } from '@/lib/month-picture';
 import { playSound } from '@/lib/sounds';
-import { useElementSize } from '@/lib/use-element-height';
-import { useMediaQuery } from '@/lib/use-media';
+import { localDay } from '@/lib/streak';
 import type { FinancialProfile } from '@/lib/types';
-import AgentBubble from '@/components/ui/AgentBubble';
-import AgentSteps from '@/components/ui/AgentSteps';
+import type { View } from '@/components/app/AppShell';
 import type { AgentStep } from '@/components/ui/AgentSteps';
+import ContextMenu, { useContextMenu } from '@/components/ui/ContextMenu';
+import type { MenuEntry } from '@/components/ui/ContextMenu';
 import Sheet from '@/components/ui/Sheet';
-import { Ticking } from '@/components/ui/Ticking';
-import CanvasCard from './CanvasCard';
-import type { CardLayout } from './CanvasCard';
 import CategoryIcon from './CategoryIcon';
-import SheetGrid, { ITEM_DRAG_TYPE } from './SheetGrid';
-import type { SheetColumn, SheetRow } from './SheetGrid';
+import CategorySheet from './CategorySheet';
+import BillsSheet from './BillsSheet';
+import { MonthHero, MonthLedger, PurchaseLedger, PurchaseRow, YearLedger } from './Ledger';
+import type { MenuTarget } from './Ledger';
+import SpendChart from './SpendChart';
+import TransactionEditor from './TransactionEditor';
+
+/** What the cards beside the budget can do to it. */
+export interface BudgetActions {
+  openPurchase: (id: string) => void;
+  openCategory: (id: string) => void;
+  openBills: () => void;
+  review: () => void;
+  setBudgetFor: (categoryId: string, amount: number) => void;
+}
+
+function SettingRow({ label, onChoose }: { label: string; onChoose: () => void }) {
+  return (
+    <li>
+      <button type="button" onClick={onChoose} className="pf-row-button flex h-11 items-center justify-between gap-3 text-[15px]">
+        <span className="min-w-0 truncate">{label}</span>
+        <ChevronRight size={16} className="shrink-0 text-[var(--pf-text-tertiary)]" aria-hidden />
+      </button>
+    </li>
+  );
+}
 
 interface BudgetViewProps {
   budget: Budget;
+  greeting: string;
+  /** The streak, points and the week's goal. */
+  game: (actions: BudgetActions) => React.ReactNode;
+  /** What the agent found today. */
+  today: (actions: BudgetActions, isSample: boolean) => React.ReactNode;
   isSample: boolean;
-  report: ImportSummary | null;
+  view: View;
+  onView: (view: View) => void;
   fillKey: number;
   month: string;
   profile: FinancialProfile;
   hasNumbers: boolean;
   problem: string | null;
   steps: AgentStep[] | null;
+  canUndo: boolean;
+  /** A purchase to open as soon as the sheet appears. */
+  openOnArrival?: string | null;
+  /** Start by asking about the charges the agent couldn't sort. */
+  reviewOnArrival?: boolean;
+  onUndo: () => void;
   onMonthChange: (month: string) => void;
   onChange: (budget: Budget) => void;
   onAddFile: (file: File, source?: TransactionSource) => void;
   onFromNumbers?: () => void;
   onUpdateProfile: (profile: FinancialProfile) => void;
   onStartOver: () => void;
+  onConnect: () => void;
 }
 
-type Tab = 'month' | 'year' | 'transactions';
-
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'month', label: 'This month' },
-  { id: 'year', label: 'Whole year' },
-  { id: 'transactions', label: 'Transactions' },
-];
-
-const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-type CardId = 'summary' | 'month' | 'year' | 'transactions';
-
-const DEFAULT_LAYOUT: Record<CardId, CardLayout> = {
-  summary: { x: 0, y: 0, w: 0.235, h: 0.28 },
-  transactions: { x: 0, y: 0.3, w: 0.235, h: 0.7 },
-  month: { x: 0.25, y: 0, w: 0.355, h: 1 },
-  year: { x: 0.62, y: 0, w: 0.38, h: 1 },
-};
-
-const LAYOUT_KEY = 'pathfinder.canvas.v5';
-
-function loadLayout(): Record<CardId, CardLayout> {
-  try {
-    const saved = window.localStorage.getItem(LAYOUT_KEY);
-    return saved ? { ...DEFAULT_LAYOUT, ...(JSON.parse(saved) as Partial<Record<CardId, CardLayout>>) } : DEFAULT_LAYOUT;
-  } catch {
-    return DEFAULT_LAYOUT;
-  }
+function downloadSpreadsheet(budget: Budget) {
+  const rows = [
+    ['Date', 'Name', 'Category', 'Amount'],
+    ...budget.transactions.map((transaction) => [transaction.date, tidyName(transaction.description), categoryLabel(budget, transaction.categoryId), transaction.amount.toFixed(2)]),
+  ];
+  const csv = rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(',')).join('\n');
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  link.download = 'pathfinder-budget.csv';
+  link.click();
+  URL.revokeObjectURL(link.href);
 }
 
-function saveLayout(layout: Record<CardId, CardLayout>) {
-  try {
-    window.localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
-  } catch {
-    // Ignore storage failures (private mode/quota)
-  }
+interface MonthPickerProps {
+  month: string;
+  earliest: string;
+  latest: string;
+  onMonth: (month: string) => void;
 }
 
-const CATEGORY_COLUMN = 124;
-const NUMBER_COLUMN = 72;
-const GUTTER = 34;
-
-function plain(value: number): string {
-  if (Math.round(value) === 0) return '–';
-  return `${value < 0 ? '−' : ''}${Math.round(Math.abs(value)).toLocaleString('en-CA')}`;
+/** The year only shows when it isn't this one. */
+function MonthPicker({ month, earliest, latest, onMonth }: MonthPickerProps) {
+  const label = month.slice(0, 4) === latest.slice(0, 4) ? monthLabel(month).split(' ')[0] : monthLabel(month);
+  const step = (months: number) => { onMonth(shiftMonth(month, months)); playSound('tap'); };
+  return (
+    <span className="-ml-2 flex items-center gap-0.5 text-[15px] font-bold">
+      <button type="button" aria-label="Previous month" disabled={month <= earliest} className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-[10px] hover:bg-[var(--pf-bg-hover)] disabled:cursor-default disabled:opacity-25" onClick={() => step(-1)}><ChevronLeft size={17} /></button>
+      {label}
+      <button type="button" aria-label="Next month" disabled={month >= latest} className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-[10px] hover:bg-[var(--pf-bg-hover)] disabled:cursor-default disabled:opacity-25" onClick={() => step(1)}><ChevronRight size={17} /></button>
+    </span>
+  );
 }
 
-function dayLabel(date: string): string {
-  return new Date(`${date}T12:00:00`).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
-}
+/** Long enough to read, short enough not to linger. */
+const STATUS_MS = 5000;
 
 export default function BudgetView({
   budget,
+  greeting,
+  game,
+  today: todayCard,
   isSample,
-  report,
+  view,
+  onView,
   fillKey,
   month,
   profile,
   hasNumbers,
   problem,
   steps,
+  canUndo,
+  openOnArrival,
+  reviewOnArrival,
+  onUndo,
   onMonthChange,
   onChange,
   onAddFile,
   onFromNumbers,
   onUpdateProfile,
   onStartOver,
+  onConnect,
 }: BudgetViewProps) {
-  const [tab, setTab] = useState<Tab>('month');
-  const [entry, setEntry] = useState('');
   const [status, setStatus] = useState<string | null>(null);
   const [openCategory, setOpenCategory] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(openOnArrival ?? null);
   const [showSettings, setShowSettings] = useState(false);
-  const [reviewing, setReviewing] = useState(false);
+  const [showBills, setShowBills] = useState(false);
+  const [showOneTime, setShowOneTime] = useState(false);
+  const [reviewing, setReviewing] = useState(!!reviewOnArrival);
   const [confirmingReset, setConfirmingReset] = useState(false);
   const [newCategory, setNewCategory] = useState('');
   const [dragging, setDragging] = useState(false);
-  const [canvasRef, canvas] = useElementSize<HTMLDivElement>();
-  const [layout, setLayout] = useState<Record<CardId, CardLayout>>(loadLayout);
-  const [order, setOrder] = useState<CardId[]>(['summary', 'transactions', 'month', 'year']);
-  const useCanvas = useMediaQuery('(min-width: 1024px)');
 
-  const summary = useMemo(() => monthSummary(budget, month), [budget, month]);
+  const [today] = useState(() => new Date());
+  const [todayIso] = useState(() => localDay());
+  const picture = useMemo(() => monthPicture(budget, month, todayIso), [budget, month, todayIso]);
+  const rhythms = useMemo(() => purchaseRhythms(budget), [budget]);
   const unsure = useMemo(() => nextUnsure(budget), [budget]);
-  const year = Number(month.slice(0, 4));
-  const yearData = useMemo(() => yearSummary(budget, year), [budget, year]);
+  const sameQuestion = budget.questions?.[0];
+  const sameTarget = sameQuestion && budget.transactions.find((transaction) => transaction.id === sameQuestion.purchaseId);
 
-  const today = new Date();
   const latestMonth = monthKey(today);
   const earliestMonth = budget.transactions[0]?.date.slice(0, 7) ?? latestMonth;
-  const ordered = [...budget.categories].sort((a, b) => b.planned - a.planned);
   const received = monthIncome(budget, month);
-
-  const openName = openCategory ? budget.categories.find((category) => category.id === openCategory)?.name ?? categoryName(openCategory) : '';
   const categoryOptions = [
     ...SORTABLE_CATEGORIES,
     ...budget.categories.filter((category) => !SORTABLE_CATEGORIES.some((item) => item.id === category.id) && category.id !== 'other'),
-  ];
+  ].map((option) => ({ ...option, name: everydayName(option.id, categoryLabel(budget, option.id)) }));
 
-  const setPlanned = (id: string, value: number) => {
-    onChange({ ...budget, categories: budget.categories.map((category) => (category.id === id ? { ...category, planned: value } : category)) });
-    setStatus(`✓ ${categoryName(id)} budget is now ${formatMoney(value)}`);
-    playSound('pop');
-  };
+  const nameOf = useCallback((id: string) => categoryLabel(budget, id), [budget]);
 
-  const addEntry = () => {
-    const text = entry.trim();
-    if (!text) return;
-    const parsed = parseQuickEntry(text);
-    if (!parsed) {
-      setStatus(/\d/.test(text) ? `What was that for? Try: ${text} groceries` : `How much was ${text}? Try: 20 ${text}`);
-      return;
-    }
-    const date = month === latestMonth ? today.toISOString().slice(0, 10) : `${month}-15`;
-    const { budget: next, categoryId } = addQuickEntry(budget, parsed, date);
+  const done = useCallback((next: Budget, message: string) => {
     onChange(next);
-    setEntry('');
-    setStatus(`✓ ${formatMoney(parsed.amount)} added to ${categoryName(categoryId)}`);
+    setStatus(message);
     playSound('pop');
+  }, [onChange]);
+
+  const editBudget = useCallback((id: string, value: number) => {
+    done(setPlanned(budget, id, value), `${nameOf(id)} budget is now ${formatMoney(value)}`);
+  }, [budget, done, nameOf]);
+
+  const setRhythm = useCallback((description: string, rhythm: Rhythm, message: string) => {
+    done(autoBudget(setMerchantRhythm(budget, description, rhythm)), message);
+  }, [budget, done]);
+
+  const removePurchase = useCallback((id: string) => {
+    const transaction = budget.transactions.find((item) => item.id === id);
+    done(deleteTransaction(budget, id), `Deleted ${transaction ? tidyName(transaction.description) : 'that purchase'}`);
+    setEditingId(null);
+  }, [budget, done]);
+
+  const savePurchase = (id: string, change: TransactionChange, everyTime: boolean) => {
+    const transaction = budget.transactions.find((item) => item.id === id);
+    if (!transaction) return;
+    let next = updateTransaction(budget, id, change);
+    if (everyTime && change.categoryId && change.categoryId !== transaction.categoryId) next = sortMerchant(next, transaction.description, change.categoryId);
+    if (everyTime && change.once !== undefined) next = setMerchantRhythm(next, transaction.description, change.once ? 'once' : 'everyday');
+    done(change.once === undefined ? next : autoBudget(next), change.once === undefined ? 'Saved' : change.once ? 'Kept out of your budget' : 'Back in your budget');
+    setEditingId(null);
   };
+
+  const setBudgetsForMe = useCallback(() => {
+    done(suggestBudgets(budget), 'Done. Your budgets now match what you really spend.');
+  }, [budget, done]);
 
   const addCategory = () => {
     const name = newCategory.trim();
     if (!name) return;
-    const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const id = name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-');
     if (!budget.categories.some((category) => category.id === id)) {
-      onChange({ ...budget, categories: [...budget.categories, { id, name, planned: 0 }] });
-      setStatus(`✓ Added ${name}`);
-      playSound('pop');
+      done({ ...budget, planEdited: true, categories: [...budget.categories, { id, name, planned: 0 }] }, `Added ${name}`);
     }
     setNewCategory('');
+    // A new category has no budget yet, so go straight to where one can be typed
+    setShowSettings(false);
+    setOpenCategory(id);
   };
 
-  // ── This month sheet ──
-  const monthColumns: SheetColumn[] = [
-    { key: 'name', label: 'Category' },
-    { key: 'budget', label: 'Budget', align: 'right', width: NUMBER_COLUMN },
-    { key: 'spent', label: 'Spent', align: 'right', width: NUMBER_COLUMN },
-    { key: 'left', label: 'Left', align: 'right', width: NUMBER_COLUMN },
-  ];
-  const monthRows: SheetRow[] = ordered.map((category) => {
-    const spent = summary.spentByCategory[category.id] ?? 0;
-    return {
-      id: category.id,
-      onOpen: () => setOpenCategory(category.id),
-      cells: {
-        name: { text: category.name, node: <span className="flex min-w-0 items-center gap-2"><CategoryIcon id={category.id} /><span className="truncate">{category.name}</span></span> },
-        budget: { text: plain(category.planned), value: category.planned },
-        spent: { text: plain(spent) },
-        left: { text: plain(category.planned - spent), strong: spent > category.planned, tone: spent > category.planned ? 'warn' : undefined },
-      },
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'z') return;
+      if ((event.target as HTMLElement).closest('input, textarea')) return;
+      event.preventDefault();
+      if (canUndo) {
+        onUndo();
+        setStatus('Undone');
+      }
     };
-  });
-  const monthTotal: SheetRow = {
-    id: 'total',
-    cells: {
-      name: { text: 'Total', strong: true },
-      budget: { text: plain(summary.planned), strong: true },
-      spent: { text: plain(summary.spent), strong: true },
-      left: { text: plain(summary.left), strong: true, tone: summary.left < 0 ? 'warn' : 'good' },
-    },
-  };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [canUndo, onUndo]);
 
-  // ── Whole year sheet: as many months as the window has room for ──
-  const yearWidth = useCanvas ? layout.year.w * canvas.width - 18 : canvas.width;
-  const available = yearWidth - GUTTER - CATEGORY_COLUMN - NUMBER_COLUMN * 2;
-  const monthCount = Math.max(1, Math.min(12, Math.floor(available / 68)));
-  const lastIndex = Number(month.slice(5, 7)) - 1;
-  const firstIndex = Math.max(0, Math.min(12 - monthCount, lastIndex - monthCount + 1));
-  const shownMonths = Array.from({ length: monthCount }, (_, offset) => firstIndex + offset);
-  const keyOf = (index: number) => `${year}-${String(index + 1).padStart(2, '0')}`;
+  // A message from the agent gets the same few seconds as any other
+  const [lastProblem, setLastProblem] = useState(problem);
+  const [problemShown, setProblemShown] = useState(false);
+  if (problem !== lastProblem) {
+    setLastProblem(problem);
+    setProblemShown(false);
+  }
+  const showProblem = !!problem && !problemShown;
+  const message = showProblem ? problem : status;
 
-  const yearColumns: SheetColumn[] = [
-    { key: 'name', label: 'Category', width: CATEGORY_COLUMN },
-    { key: 'budget', label: 'Budget', align: 'right', width: NUMBER_COLUMN },
-    ...shownMonths.map((index) => ({ key: keyOf(index), label: SHORT_MONTHS[index], align: 'right' as const })),
-    { key: 'total', label: `${year}`, align: 'right', width: NUMBER_COLUMN },
-  ];
-  const yearRows: SheetRow[] = ordered.map((category) => {
-    const months = yearData[category.id] ?? {};
-    return {
-      id: category.id,
-      onOpen: () => setOpenCategory(category.id),
-      cells: {
-        name: { text: category.name, node: <span className="flex min-w-0 items-center gap-2"><CategoryIcon id={category.id} /><span className="truncate">{category.name}</span></span> },
-        budget: { text: plain(category.planned), value: category.planned },
-        total: { text: plain(Object.values(months).reduce((sum, value) => sum + value, 0)) },
-        ...Object.fromEntries(shownMonths.map((index) => [keyOf(index), { text: plain(months[keyOf(index)] ?? 0) }])),
+  useEffect(() => {
+    if (!message) return;
+    const timer = setTimeout(() => {
+      setStatus(null);
+      setProblemShown(true);
+    }, STATUS_MS);
+    return () => clearTimeout(timer);
+  }, [message]);
+
+  // Moving the last one-time purchase back empties its list, and an undo shouldn't reopen it
+  if (showOneTime && picture.oneTime.length === 0) setShowOneTime(false);
+
+
+  const { target: menu, open: openMenu, close: closeMenu } = useContextMenu<MenuTarget>();
+
+  /** Right-click anything: it offers what can be changed about that one thing. */
+  const menuEntries = (item: MenuTarget): MenuEntry[] => {
+    if (item.kind === 'category') {
+      const pinned = budget.pinned?.includes(item.id) ?? false;
+      return [
+        { kind: 'heading', label: item.name },
+        { kind: 'action', label: 'Change budget or name', icon: Pencil, onSelect: () => setOpenCategory(item.id) },
+        { kind: 'action', label: pinned ? 'Unpin' : 'Pin to top', icon: Pin, onSelect: () => done(togglePinned(budget, item.id), pinned ? `Unpinned ${item.name}` : `${item.name} stays on top`) },
+        { kind: 'action', label: 'Add a category', icon: Plus, onSelect: () => setShowSettings(true) },
+        // Other is where everything else goes, so it can't be taken away
+        ...(item.id === 'other' ? [] : [
+          { kind: 'divider' as const },
+          { kind: 'action' as const, label: 'Remove from budget', icon: Trash2, danger: true, onSelect: () => done(removeCategory(budget, item.id), `Removed ${item.name}`) },
+        ]),
+      ];
+    }
+    if (item.kind === 'bill') {
+      return [
+        { kind: 'heading', label: item.name },
+        ...(item.purchaseId ? [{ kind: 'action' as const, label: 'Open', icon: ExternalLink, onSelect: () => setEditingId(item.purchaseId ?? null) }] : []),
+        { kind: 'action', label: 'Not a bill', icon: Receipt, onSelect: () => setRhythm(item.merchant, 'everyday', `${item.name} is everyday spending now`) },
+        { kind: 'action', label: 'One-time', icon: Ticket, onSelect: () => setRhythm(item.merchant, 'once', 'Kept out of your budget') },
+      ];
+    }
+    const purchase = budget.transactions.find((transaction) => transaction.id === item.id);
+    if (!purchase) return [];
+    const once = rhythms.get(purchase.id) === 'once';
+    return [
+      { kind: 'heading', label: tidyName(purchase.description) },
+      { kind: 'action', label: 'Edit', icon: Pencil, onSelect: () => setEditingId(purchase.id) },
+      {
+        kind: 'submenu',
+        label: 'Move to',
+        icon: FolderInput,
+        value: nameOf(purchase.categoryId),
+        items: categoryOptions.map((option) => ({ kind: 'action' as const, label: option.name, checked: option.id === purchase.categoryId, onSelect: () => done(updateTransaction(budget, purchase.id, { categoryId: option.id }), `Moved to ${option.name}`) })),
       },
-    };
-  });
-  const sumMonth = (key: string) => Object.values(yearData).reduce((sum, months) => sum + (months[key] ?? 0), 0);
-  const yearTotal: SheetRow = {
-    id: 'total',
-    cells: {
-      name: { text: 'Total', strong: true },
-      budget: { text: plain(summary.planned), strong: true },
-      total: { text: plain(Object.values(yearData).reduce((sum, months) => sum + Object.values(months).reduce((a, b) => a + b, 0), 0)), strong: true },
-      ...Object.fromEntries(shownMonths.map((index) => [keyOf(index), { text: plain(sumMonth(keyOf(index))), strong: true }])),
-    },
+      { kind: 'action', label: once ? 'Put back in budget' : 'One-time', icon: Ticket, onSelect: () => done(autoBudget(updateTransaction(budget, purchase.id, { once: !once })), once ? 'Back in your budget' : 'Kept out of your budget') },
+      { kind: 'action', label: 'Always a bill', icon: Receipt, onSelect: () => setRhythm(purchase.description, 'bill', `${tidyName(purchase.description)} is a bill now`) },
+      { kind: 'divider' },
+      { kind: 'action', label: 'Delete', icon: Trash2, danger: true, onSelect: () => removePurchase(purchase.id) },
+    ];
   };
 
-  // ── Transactions sheet ──
-  const wide = !useCanvas && canvas.width >= 640;
-  const transactionColumns: SheetColumn[] = [
-    { key: 'date', label: 'Date', width: 72 },
-    { key: 'description', label: 'Description' },
-    { key: 'category', label: 'Category', width: wide ? 150 : 104 },
-    { key: 'amount', label: 'Amount', align: 'right', width: NUMBER_COLUMN },
-    ...(wide ? [{ key: 'source', label: 'From', width: 124 }] : []),
-  ];
-  const transactionRows: SheetRow[] = budget.transactions
-    .filter((transaction) => transaction.date.startsWith(month) && transaction.categoryId !== INCOME_ID)
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .map((transaction) => ({
-      id: transaction.id,
-      cells: {
-        date: { text: dayLabel(transaction.date) },
-        description: {
-          text: transaction.description,
-          node: (
-            <div
-              draggable
-              onDragStart={(event) => {
-                event.dataTransfer.setData(ITEM_DRAG_TYPE, transaction.id);
-                event.dataTransfer.effectAllowed = 'move';
-              }}
-              title="Drag onto a category"
-              className="cursor-grab truncate active:cursor-grabbing"
-            >
-              {tidyName(transaction.description)}
-            </div>
-          ),
-        },
-        amount: { text: transaction.amount.toLocaleString('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol' }) },
-        source: { text: transaction.source ? SOURCE_LABELS[transaction.source] : '' },
-        category: {
-          text: categoryName(transaction.categoryId),
-          node: (
-            <select
-              aria-label={`Category for ${transaction.description}`}
-              value={transaction.categoryId}
-              onChange={(event) => {
-                onChange(sortMerchant(budget, transaction.description, event.target.value));
-                setStatus(`✓ Moved to ${categoryName(event.target.value)}. I'll remember that.`);
-                playSound('pop');
-              }}
-              className="w-full cursor-pointer truncate bg-transparent outline-none"
-            >
-              <option value={transaction.categoryId}>{categoryName(transaction.categoryId)}</option>
-              {categoryOptions.filter((option) => option.id !== transaction.categoryId).map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
-              {transaction.categoryId !== TRANSFER_ID && <option value={TRANSFER_ID}>Not counted</option>}
-            </select>
-          ),
-        },
-      },
-    }));
-
-  const openTransactions = budget.transactions
-    .filter((transaction) => transaction.categoryId === openCategory && transaction.date.startsWith(month))
-    .sort((a, b) => b.date.localeCompare(a.date));
-
-  const overspent = ordered
-    .map((category) => ({ name: category.name, over: (summary.spentByCategory[category.id] ?? 0) - category.planned }))
-    .filter((item) => item.over > 0)
-    .sort((a, b) => b.over - a.over)[0];
-  const defaultStatus = report
-    ? importMessage(report)
-    : overspent
-      ? `${overspent.name} is ${formatMoney(overspent.over)} over budget this month`
-      : `${budget.transactions.length} transactions in this sheet`;
-
-  const dropOnCategory = useCallback((categoryId: string, transactionId: string) => {
-    const transaction = budget.transactions.find((item) => item.id === transactionId);
-    if (!transaction) return;
-    onChange(sortMerchant(budget, transaction.description, categoryId));
-    setStatus(`✓ ${transaction.description} moved to ${categoryName(categoryId)}. I'll remember that.`);
-    playSound('success');
-  }, [budget, onChange]);
-
-  const updateCard = (id: CardId, next: CardLayout) => {
-    const updated = { ...layout, [id]: next };
-    setLayout(updated);
-    saveLayout(updated);
+  const actions: BudgetActions = {
+    openPurchase: setEditingId,
+    openCategory: setOpenCategory,
+    openBills: () => setShowBills(true),
+    review: () => setReviewing(true),
+    setBudgetFor: editBudget,
   };
 
-  const bringForward = (id: CardId) => {
-    setOrder((current) => (current[current.length - 1] === id ? current : [...current.filter((item) => item !== id), id]));
-  };
-
-  const tidyUp = () => {
-    setLayout(DEFAULT_LAYOUT);
-    saveLayout(DEFAULT_LAYOUT);
-    setStatus('✓ Tidied up');
-    playSound('complete');
-  };
-
-  const monthGrid = (
-    <SheetGrid
-      key={`month-${month}`}
-      columns={monthColumns}
-      rows={monthRows}
-      total={monthTotal}
-      fillKey={fillKey}
-      hint={ordered.length < 6 ? 'This keeps filling in as I find more of your spending.' : undefined}
-      onEdit={(rowId, _column, value) => setPlanned(rowId, value)}
-      onDropItem={dropOnCategory}
-    />
-  );
-
-  const yearGrid = (
-    <SheetGrid
-      key={`year-${year}-${monthCount}`}
-      columns={yearColumns}
-      rows={yearRows}
-      total={yearTotal}
-      fillKey={fillKey}
-      onEdit={(rowId, _column, value) => setPlanned(rowId, value)}
-      onDropItem={dropOnCategory}
-    />
-  );
-
-  const transactionsGrid = (
-    <SheetGrid key={`transactions-${month}`} columns={transactionColumns} rows={transactionRows} fillKey={fillKey} />
-  );
-
-  const cardZ = (id: CardId) => order.indexOf(id) + 1;
+  const editing = editingId ? budget.transactions.find((transaction) => transaction.id === editingId) : undefined;
+  const opened = openCategory ? budget.categories.find((category) => category.id === openCategory) : undefined;
+  const openedRow = opened && picture.everyday.find((row) => row.id === opened.id);
 
   return (
     <div
-      className="relative flex h-full min-h-0 flex-col"
+      className="relative mx-auto w-full max-w-[640px] lg:max-w-none"
       onDragOver={(event) => {
         if (!event.dataTransfer.types.includes('Files')) return;
         event.preventDefault();
@@ -403,249 +351,214 @@ export default function BudgetView({
         if (file) onAddFile(file);
       }}
     >
-      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
-        {!useCanvas && (
-          <div className="flex items-baseline gap-2">
-            <h1 className="font-serif text-[clamp(28px,5vh,40px)] leading-none">
-              <Ticking value={Math.abs(summary.left)} format={formatMoney} />
-            </h1>
-            <p className="text-[14px] text-[var(--pf-text-secondary)]">{summary.left >= 0 ? 'left to spend' : 'over budget'}</p>
-          </div>
-        )}
-        <span className="flex items-center gap-2 text-[14px] text-[var(--pf-text-secondary)]">
-          <button type="button" aria-label="Previous month" disabled={month <= earliestMonth} className="cursor-pointer disabled:opacity-25" onClick={() => { onMonthChange(shiftMonth(month, -1)); playSound('tap'); }}>←</button>
-          <span className="text-[var(--pf-text-primary)]">{monthLabel(month)}</span>
-          <button type="button" aria-label="Next month" disabled={month >= latestMonth} className="cursor-pointer disabled:opacity-25" onClick={() => { onMonthChange(shiftMonth(month, 1)); playSound('tap'); }}>→</button>
-        </span>
-        <div className="order-last flex h-10 min-w-[240px] flex-1 basis-full items-center rounded-full bg-[var(--pf-bg-surface)] px-4 shadow-[inset_0_0_0_1px_var(--pf-border)] transition-shadow focus-within:shadow-[inset_0_0_0_2px_var(--pf-text-primary)] lg:order-none lg:basis-0">
-          <label htmlFor="pf-quick" className="sr-only">Add spending</label>
-          <input
-            id="pf-quick"
-            value={entry}
-            onChange={(event) => setEntry(event.target.value)}
-            onKeyDown={(event) => { if (event.key === 'Enter') addEntry(); }}
-            placeholder="Paid cash? Tell me: 45 costco"
-            autoComplete="off"
-            className="h-full min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-[var(--pf-text-tertiary)]"
-          />
-        </div>
-        <div className="ml-auto flex items-center gap-4 text-[14px] lg:ml-0">
-          {useCanvas && <button type="button" className="pf-link" onClick={tidyUp}>Tidy up</button>}
-          <button type="button" className="pf-link" onClick={() => { setShowSettings(true); playSound('tap'); }}>Settings</button>
-        </div>
-      </div>
+      <h1 className="sr-only">{greeting}</h1>
 
-      {!useCanvas && (
-        <div className="mt-2 flex shrink-0 items-center justify-between gap-2">
-          <AgentBubble
-            tone={problem ? 'problem' : status?.startsWith('✓') || report ? 'good' : 'normal'}
-            message={problem ?? status ?? (isSample ? 'Hi! This is a sample. Connect Gmail and I\'ll fill it in.' : defaultStatus)}
-          />
-          {unsure && !isSample && (
-            <button type="button" className="pf-pill shrink-0" onClick={() => { setReviewing(true); playSound('tap'); }}>
-              {unsure.remaining} to check
-            </button>
-          )}
+      {view === 'month' && (
+        <div className="flex flex-col">
+          <div className="contents lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-x-8">
+            <div className="order-1 lg:order-none">
+              <div className="flex items-center justify-between lg:justify-start lg:gap-2">
+                <MonthPicker month={month} earliest={earliestMonth} latest={latestMonth} onMonth={onMonthChange} />
+                <button type="button" aria-label="Settings" className="-mr-2 flex h-8 w-8 cursor-pointer items-center justify-center rounded-[10px] text-[var(--pf-text-secondary)] hover:bg-[var(--pf-bg-hover)] lg:mr-0" onClick={() => { setShowSettings(true); playSound('tap'); }}><Settings2 size={18} /></button>
+              </div>
+              <MonthHero picture={picture} month={month} today={todayIso} />
+            </div>
+            <div className="order-3 mt-2 lg:order-none lg:mt-0">{game(actions)}</div>
+          </div>
+          <div className="order-2 mt-2 lg:order-none">{todayCard(actions, isSample)}</div>
+          <div className="relative order-4 mt-3 lg:order-none lg:mt-2">
+            <MonthLedger picture={picture} fillKey={fillKey} onOpenCategory={setOpenCategory} onOpenBills={() => setShowBills(true)} onOpenOneTime={() => setShowOneTime(true)} onOpenPurchase={setEditingId} onMenu={openMenu} />
+            {budget.transactions.length === 0 && !isSample && !steps && (
+              <div className="absolute left-1/2 top-16 z-10 w-[min(92%,420px)] -translate-x-1/2 rounded-[16px] bg-[var(--pf-bg-surface)] p-6 text-center shadow-[inset_0_0_0_1px_var(--pf-border),0_12px_32px_rgba(28,27,27,0.1)]">
+                <p className="pf-title">Nothing here yet</p>
+                <button type="button" className="pf-btn pf-btn-agent mt-4 h-11" onClick={onConnect}>Bring in my receipts</button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
-      <div
-        ref={canvasRef}
-        className={`relative mt-2 flex min-h-0 flex-1 flex-col ${useCanvas ? '-mx-2 overflow-hidden rounded-[16px] p-0' : ''}`}
-        style={useCanvas ? { backgroundImage: 'radial-gradient(var(--pf-bg-dark) 1px, transparent 1px)', backgroundSize: '12px 12px' } : undefined}
-      >
-        {useCanvas ? (
-          canvas.width > 0 && (
-            <>
-              <CanvasCard title={isSample ? `Sample family · ${monthLabel(month)}` : monthLabel(month)} layout={layout.summary} canvas={canvas} zIndex={cardZ('summary')} onChange={(next) => updateCard('summary', next)} onFocus={() => bringForward('summary')}>
-                <div className="flex h-full flex-col justify-center px-1">
-                  <p className="font-serif text-[clamp(28px,5vh,44px)] leading-none"><Ticking value={Math.abs(summary.left)} format={formatMoney} /></p>
-                  <p className="mt-1 truncate text-[14px] text-[var(--pf-text-secondary)]">{summary.left >= 0 ? 'left to spend' : 'over budget'}</p>
-                  <div aria-hidden className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--pf-bg-elevated)]">
-                    <div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${Math.min(100, summary.planned > 0 ? (summary.spent / summary.planned) * 100 : 0)}%`, background: summary.left < 0 ? 'var(--pf-warn)' : 'var(--pf-good)' }} />
-                  </div>
-                </div>
-              </CanvasCard>
-              <CanvasCard title="Purchases" layout={layout.transactions} canvas={canvas} zIndex={cardZ('transactions')} onChange={(next) => updateCard('transactions', next)} onFocus={() => bringForward('transactions')}>
-                <CompactPurchases rows={transactionRows} />
-              </CanvasCard>
-              <CanvasCard title="This month" layout={layout.month} canvas={canvas} zIndex={cardZ('month')} onChange={(next) => updateCard('month', next)} onFocus={() => bringForward('month')}>
-                {monthGrid}
-              </CanvasCard>
-              <CanvasCard title="Whole year" layout={layout.year} canvas={canvas} zIndex={cardZ('year')} onChange={(next) => updateCard('year', next)} onFocus={() => bringForward('year')}>
-                {yearGrid}
-              </CanvasCard>
-            </>
-          )
-        ) : (
-          <>
-            {tab === 'month' && monthGrid}
-            {tab === 'year' && yearGrid}
-            {tab === 'transactions' && transactionsGrid}
-          </>
-        )}
+      {view === 'year' && (
+        <div className="pf-card px-4 pb-3 pt-2 lg:px-6"><YearLedger budget={budget} month={month} onMonth={onMonthChange} onOpenMonth={(key) => { onMonthChange(key); onView('month'); }} onOpenCategory={setOpenCategory} onMenu={openMenu} /></div>
+      )}
 
-        {steps && (
-          <div className="absolute left-1/2 top-1/2 z-40 w-[min(92%,440px)] -translate-x-1/2 -translate-y-1/2 rounded-[16px] border border-[var(--pf-text-primary)] bg-[var(--pf-bg-primary)] p-5 shadow-[0_18px_40px_rgba(0,0,0,0.16)]">
-            <AgentSteps steps={steps} />
-          </div>
-        )}
-      </div>
-
-      <div className={`mt-2 flex min-h-9 shrink-0 items-center gap-3 ${useCanvas ? '' : 'border-t border-[var(--pf-border)]'}`}>
-        {!useCanvas && (
-          <div role="tablist" aria-label="Sheets" className="flex h-9 shrink-0">
-            {TABS.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                role="tab"
-                aria-selected={tab === item.id}
-                onClick={() => { setTab(item.id); playSound('tap'); }}
-                className={`-mt-px cursor-pointer border-x border-b px-2.5 text-[13px] sm:px-3.5 ${tab === item.id ? 'border-[var(--pf-text-primary)] bg-[var(--pf-bg-primary)] font-semibold' : 'border-transparent text-[var(--pf-text-secondary)] hover:text-[var(--pf-text-primary)]'}`}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        )}
-        <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-          <div className="hidden min-w-0 sm:block">
-            <AgentBubble
-              tone={problem ? 'problem' : status?.startsWith('✓') || report ? 'good' : 'normal'}
-              message={problem ?? status ?? (isSample ? "Hi! This is a sample family. Connect Gmail and I'll fill this in with yours." : defaultStatus)}
-            />
-          </div>
-          {useCanvas && unsure && !isSample && (
-            <button type="button" className="pf-pill shrink-0" onClick={() => { setReviewing(true); playSound('tap'); }}>
-              {unsure.remaining} to check
-            </button>
-          )}
+      {view === 'transactions' && (
+        <div className="pf-card px-4 pb-3 pt-2 lg:px-6">
+          <PurchaseLedger
+            budget={budget}
+            month={month}
+            picker={<MonthPicker month={month} earliest={earliestMonth} latest={latestMonth} onMonth={onMonthChange} />}
+            total={picture.spent + picture.oneTimeTotal}
+            chart={<SpendChart points={dailySpending(budget, month, month === latestMonth ? today.getDate() : daysInMonth(month))} days={daysInMonth(month)} planned={picture.planned} month={month} />}
+            onOpenPurchase={setEditingId}
+            onMenu={openMenu}
+          />
         </div>
-      </div>
+      )}
 
       {dragging && (
-        <div aria-hidden className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center border-2 border-dashed border-[var(--pf-text-primary)] bg-[var(--pf-bg-primary)]/90">
-          <p className="font-serif text-[32px]">Drop it. I&rsquo;ll fill in the sheet.</p>
+        <div aria-hidden className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[16px] border-2 border-dashed border-[var(--pf-text-primary)] bg-[var(--pf-bg-primary)]/90">
+          <p className="pf-title">Drop it. I&rsquo;ll add it to your budget.</p>
         </div>
       )}
 
+      <ContextMenu at={menu} items={menu ? menuEntries(menu) : []} onClose={closeMenu} />
+
+      <div className="pointer-events-none fixed inset-x-0 bottom-[calc(74px+var(--pf-badge-room,0px))] z-[60] flex justify-center px-4 lg:bottom-[calc(24px+var(--pf-badge-room,0px))]">
+        <AnimatePresence>
+          {message && (
+            <motion.p role="status" className="pointer-events-auto flex min-h-11 items-center gap-3 rounded-[16px] bg-[var(--pf-ink)] px-4 py-2 text-[15px] leading-snug text-[var(--pf-ivory)] shadow-[0_12px_32px_rgba(28,27,27,0.24)]" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} transition={{ type: 'spring', bounce: 0, duration: 0.3 }}>
+              <span className="min-w-0">{message}</span>
+              {!showProblem && canUndo && <button type="button" onClick={() => { onUndo(); setStatus('Undone'); playSound('tap'); }} className="shrink-0 cursor-pointer font-bold text-[var(--pf-agent)]">Undo</button>}
+            </motion.p>
+          )}
+        </AnimatePresence>
+      </div>
+
       <AnimatePresence>
-        {openCategory && (
-          <Sheet title={openName} onClose={() => setOpenCategory(null)}>
+        {showBills && !editing && <BillsSheet budget={budget} picture={picture} month={month} today={todayIso} onOpenPurchase={setEditingId} onMenu={openMenu} onClose={() => setShowBills(false)} />}
+
+        {showOneTime && !editing && (
+          <Sheet title="One-time" onClose={() => setShowOneTime(false)}>
+            <p className="mb-1 text-[15px] text-[var(--pf-text-secondary)]">Counted as spent. Left out of your budget.</p>
             <ul>
-              {openTransactions.length === 0 && <li className="py-3 text-[15px] text-[var(--pf-text-secondary)]">Nothing in {monthLabel(month)} yet.</li>}
-              {openTransactions.map((transaction) => (
-                <li key={transaction.id} className="flex items-center justify-between gap-3 border-b border-[var(--pf-border)] py-2 text-[15px]">
-                  <span className="min-w-0">
-                    <span className="block truncate">{transaction.description}</span>
-                    <span className="text-[13px] text-[var(--pf-text-tertiary)]">{dayLabel(transaction.date)}</span>
-                  </span>
-                  <span className="shrink-0">{formatMoney(transaction.amount)}</span>
-                </li>
-              ))}
+              {picture.oneTime.map((transaction) => <PurchaseRow key={transaction.id} transaction={transaction} rhythm="once" category={nameOf(transaction.categoryId)} onOpenPurchase={setEditingId} onMenu={openMenu} />)}
             </ul>
           </Sheet>
         )}
 
+        {opened && !editing && (
+          <CategorySheet
+            key={`${opened.id}-${month}`}
+            category={{ ...opened, name: everydayName(opened.id, opened.name) }}
+            month={month}
+            left={openedRow?.left}
+            spent={openedRow?.spent}
+            usual={typicalSpending(budget)[opened.id]}
+            forBills={opened.planned - (openedRow?.planned ?? opened.planned)}
+            rhythms={rhythms}
+            transactions={budget.transactions.filter((transaction) => transaction.categoryId === opened.id && transaction.date.startsWith(month)).sort((a, b) => b.date.localeCompare(a.date))}
+            onRename={(name) => done(renameCategory(budget, opened.id, name), `Renamed to ${name}`)}
+            onBudget={(value) => editBudget(opened.id, value)}
+            onOpenPurchase={setEditingId}
+            onMenu={openMenu}
+            onClose={() => setOpenCategory(null)}
+          />
+        )}
+
+        {editing && (
+          <TransactionEditor
+            key={editing.id}
+            transaction={editing}
+            oneTime={rhythms.get(editing.id) === 'once'}
+            categories={categoryOptions}
+            sameMerchant={budget.transactions.filter((item) => item.id !== editing.id && merchantKey(item.description) === merchantKey(editing.description)).length}
+            onSave={(change, everyTime) => savePurchase(editing.id, change, everyTime)}
+            onDelete={() => removePurchase(editing.id)}
+            onClose={() => setEditingId(null)}
+          />
+        )}
+
         {reviewing && (
-          <Sheet title="Help me sort this" onClose={() => setReviewing(false)}>
-            {unsure ? (
+          <Sheet title="Quick question" onClose={() => setReviewing(false)}>
+            {sameQuestion && sameTarget ? (
               <div>
-                <p className="font-serif text-[24px] leading-tight">{tidyName(unsure.transaction.description)}</p>
-                <p className="mt-1 text-[16px] text-[var(--pf-text-secondary)]">
-                  {formatMoney(unsure.transaction.amount)} on {dayLabel(unsure.transaction.date)}
+                <p className="pf-title">Same purchase?</p>
+                <p className="mt-3 text-[15px]">{tidyName(sameTarget.description)} · {formatMoney(sameTarget.amount)}</p>
+                <p className="text-[15px]">{tidyName(sameQuestion.sighting.merchant)} · {formatMoney(sameQuestion.sighting.amountCents / 100)}</p>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <button type="button" className="pf-btn pf-btn-primary h-11" onClick={() => { onChange(answerQuestion(budget, sameQuestion, true)); playSound('success'); }}>Yes</button>
+                  <button type="button" className="pf-btn pf-btn-secondary h-11" onClick={() => { onChange(answerQuestion(budget, sameQuestion, false)); playSound('tap'); }}>No</button>
+                </div>
+              </div>
+            ) : unsure ? (
+              <div>
+                <p className="pf-title">{tidyName(unsure.transaction.description)}</p>
+                <p className="mt-1 text-[15px] text-[var(--pf-text-secondary)]">
+                  {formatMoney(unsure.transaction.amount)}
                   {unsure.sameMerchant > 1 ? `, and ${unsure.sameMerchant - 1} more like it` : ''}
                 </p>
-                <div className="mt-4 flex flex-wrap gap-2">
+                <div className="mt-4 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
                   {categoryOptions.map((option) => (
-                    <button key={option.id} type="button" className="pf-pill" onClick={() => { onChange(sortMerchant(budget, unsure.transaction.description, option.id)); playSound('success'); }}>
-                      {option.name}
+                    <button key={option.id} type="button" className="flex h-10 min-w-0 cursor-pointer items-center gap-2 rounded-[12px] bg-[var(--pf-bg-primary)] px-2 text-left text-[15px] hover:bg-[var(--pf-bg-elevated)]" onClick={() => { onChange(autoBudget(sortMerchant(budget, unsure.transaction.description, option.id))); playSound('success'); }}>
+                      <CategoryIcon id={option.id} size={26} /><span className="truncate">{option.name}</span>
                     </button>
                   ))}
-                  <button type="button" className="pf-pill" onClick={() => { onChange(sortMerchant(budget, unsure.transaction.description, TRANSFER_ID)); playSound('success'); }}>
-                    Not spending
+                  <button type="button" className="flex h-10 min-w-0 cursor-pointer items-center gap-2 rounded-[12px] bg-[var(--pf-bg-primary)] px-2 text-left text-[15px] hover:bg-[var(--pf-bg-elevated)]" onClick={() => { onChange(autoBudget(sortMerchant(budget, unsure.transaction.description, TRANSFER_ID))); playSound('success'); }}>
+                    <CategoryIcon id={TRANSFER_ID} size={26} /><span className="truncate">Not spending</span>
                   </button>
                 </div>
-                <p className="mt-4 text-[14px] text-[var(--pf-text-tertiary)]">I&rsquo;ll remember this for next time.</p>
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <p className="text-[15px] text-[var(--pf-text-tertiary)]">{unsure.remaining} left</p>
+                  <button type="button" className="pf-link shrink-0 text-[15px]" onClick={() => { onChange(autoBudget(sortMerchant(budget, unsure.transaction.description, 'other'))); playSound('tap'); }}>Skip</button>
+                </div>
               </div>
             ) : (
-              <p className="text-[17px]">✓ All sorted. Thanks.</p>
+              <p className="text-[18px]">All sorted. Thanks.</p>
             )}
           </Sheet>
         )}
 
-
         {showSettings && (
-          <Sheet title="Budget settings" onClose={() => { setShowSettings(false); setConfirmingReset(false); }}>
-            <div className="flex flex-col items-start gap-2">
-              {isSample && onFromNumbers && (
-                <button type="button" className="pf-link text-[15px]" onClick={() => { setShowSettings(false); onFromNumbers(); playSound('success'); }}>Start from my Pathfinder numbers</button>
-              )}
+          <Sheet title="Settings" onClose={() => { setShowSettings(false); setConfirmingReset(false); }}>
+            <dl>
+              <div className="flex h-11 items-center justify-between gap-3 text-[15px]">
+                <dt>Money in</dt>
+                <dd className="font-bold tabular-nums">{formatMoney(received > 0 ? received : budget.income)}</dd>
+              </div>
+              <div className="flex h-11 items-center justify-between gap-3 text-[15px]">
+                <dt>Budgeted</dt>
+                <dd className="font-bold tabular-nums">{formatMoney(totalPlanned(budget))}</dd>
+              </div>
+              <div className="flex h-11 items-center justify-between gap-3 border-b border-[var(--pf-border)] text-[15px]">
+                <dt>For everyday</dt>
+                <dd className="font-bold tabular-nums">{formatMoney(picture.everydayPlanned)}</dd>
+              </div>
+            </dl>
+
+            <ul className="mt-1">
+              {isSample && onFromNumbers && <SettingRow label="Start from my Pathfinder numbers" onChoose={() => { setShowSettings(false); onFromNumbers(); playSound('success'); }} />}
               {hasNumbers && !isSample && (
-                <button
-                  type="button"
-                  className="pf-link text-[15px]"
-                  onClick={() => {
+                <SettingRow
+                  label="Use in my plans"
+                  onChoose={() => {
                     onUpdateProfile(profileWithBudget(profile, budget));
-                    setStatus('✓ Your plans now use this budget');
+                    setStatus('Your plans now use this budget');
                     setShowSettings(false);
                     playSound('success');
                   }}
-                >
-                  Use this budget in my plans
-                </button>
-              )}
-              <div className="flex w-full items-center gap-3">
-                <label htmlFor="pf-new-category" className="sr-only">New category</label>
-                <input
-                  id="pf-new-category"
-                  value={newCategory}
-                  onChange={(event) => setNewCategory(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === 'Enter') addCategory(); }}
-                  placeholder="Add a category"
-                  className="min-w-0 flex-1 border-b-2 border-[var(--pf-border)] bg-transparent py-1 text-[15px] outline-none placeholder:text-[var(--pf-text-tertiary)] focus:border-[var(--pf-text-primary)]"
                 />
-                <button type="button" className="pf-link" onClick={addCategory}>Add</button>
-              </div>
-              <p className="text-[14px] text-[var(--pf-text-secondary)]">
-                Money in: {formatMoney(received > 0 ? received : budget.income)} · Budgeted: {formatMoney(totalPlanned(budget))}
-              </p>
-              {!isSample && (confirmingReset ? (
-                <span className="flex items-center gap-4 text-[14px]">
-                  Delete this budget?
-                  <button type="button" className="pf-link underline decoration-current" onClick={onStartOver}>Yes, delete it</button>
-                  <button type="button" className="pf-link" onClick={() => setConfirmingReset(false)}>Keep it</button>
-                </span>
-              ) : (
-                <button type="button" className="pf-link" onClick={() => setConfirmingReset(true)}>Start over</button>
-              ))}
+              )}
+              <SettingRow label="Match budgets to my spending" onChoose={() => { setBudgetsForMe(); setShowSettings(false); }} />
+              <SettingRow label="Download spreadsheet" onChoose={() => downloadSpreadsheet(budget)} />
+              {canUndo && <SettingRow label="Undo last change" onChoose={() => { onUndo(); setStatus('Undone'); setShowSettings(false); playSound('tap'); }} />}
+            </ul>
+
+            <div className="mt-2 flex w-full items-center gap-2">
+              <label htmlFor="pf-new-category" className="sr-only">New category</label>
+              <input
+                id="pf-new-category"
+                value={newCategory}
+                onChange={(event) => setNewCategory(event.target.value)}
+                onKeyDown={(event) => { if (event.key === 'Enter') addCategory(); }}
+                placeholder="Add a category"
+                className="h-11 min-w-0 flex-1 rounded-[10px] bg-[var(--pf-bg-primary)] px-3 text-[15px] outline-none placeholder:text-[var(--pf-text-tertiary)] focus:shadow-[inset_0_0_0_2px_var(--pf-text-primary)]"
+              />
+              <button type="button" className="pf-btn pf-btn-secondary h-11 rounded-[10px] px-4" onClick={addCategory}>Add</button>
             </div>
+
+            {!isSample && (confirmingReset ? (
+              <p className="mt-3 flex items-center gap-4 text-[15px]">
+                Delete this budget?
+                <button type="button" className="cursor-pointer font-bold text-[var(--pf-warn)]" onClick={() => { onStartOver(); setShowSettings(false); setConfirmingReset(false); }}>Yes, delete it</button>
+                <button type="button" className="pf-link" onClick={() => setConfirmingReset(false)}>Keep it</button>
+              </p>
+            ) : (
+              <button type="button" className="mt-3 flex cursor-pointer items-center gap-1.5 text-[15px] text-[var(--pf-warn)]" onClick={() => setConfirmingReset(true)}><RotateCcw size={14} aria-hidden /> Start over</button>
+            ))}
           </Sheet>
         )}
       </AnimatePresence>
     </div>
-  );
-}
-
-
-function CompactPurchases({ rows }: { rows: SheetRow[] }) {
-  const [listRef, height] = useElementSize<HTMLUListElement>();
-  const fits = Math.max(1, Math.floor(height.height / 42));
-  const shown = rows.slice(0, fits);
-
-  return (
-    <ul ref={listRef} className="min-h-0 flex-1 overflow-hidden">
-      {shown.map((row) => (
-        <li key={row.id} className="flex h-[42px] items-center justify-between gap-2 border-b border-[var(--pf-border)] px-1 last:border-b-0">
-          <span className="min-w-0 flex-1 text-[14px]">
-            <span className="block truncate">{row.cells.description.node}</span>
-            <span className="block truncate text-[12px] text-[var(--pf-text-tertiary)]">{row.cells.date.text} · {row.cells.category.text}</span>
-          </span>
-          <span className="shrink-0 text-[14px]">{row.cells.amount.text}</span>
-        </li>
-      ))}
-      {rows.length === 0 && <li className="p-2 text-[14px] text-[var(--pf-text-secondary)]">Nothing this month yet.</li>}
-    </ul>
   );
 }

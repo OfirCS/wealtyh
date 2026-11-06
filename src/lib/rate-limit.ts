@@ -1,8 +1,10 @@
 import type { NextRequest } from 'next/server';
+import { sha256 } from '@/server/crypto';
+import { takeToken } from '@/server/rate-limit';
 
-// In-memory IP-bucket limiter. Survives only within a single serverless instance,
-// but Vercel reuses warm functions enough that this still meaningfully throttles
-// abuse without external infra. Move to Upstash KV if traffic warrants.
+// Counts AI calls in the database, so every server instance shares one limit and
+// a busy day can't burn the credit. If the database is out of reach it falls back
+// to counting in memory, which still throttles within one instance.
 
 interface Bucket {
   count: number;
@@ -32,7 +34,19 @@ export interface RateLimitResult {
   remaining?: number;
 }
 
-export function checkRateLimit(req: NextRequest): RateLimitResult {
+const DAY_SECONDS = DAY_MS / 1000;
+
+export async function checkRateLimit(req: NextRequest): Promise<RateLimitResult> {
+  try {
+    if (!await takeToken(`ai:ip:${sha256(getIp(req))}`, PER_IP_LIMIT)) return { ok: false, reason: 'per_ip', retryAfterSeconds: DAY_SECONDS };
+    if (!await takeToken('ai:global', GLOBAL_DAILY_CAP)) return { ok: false, reason: 'global', retryAfterSeconds: DAY_SECONDS };
+    return { ok: true };
+  } catch {
+    return checkInMemory(req);
+  }
+}
+
+function checkInMemory(req: NextRequest): RateLimitResult {
   const now = Date.now();
 
   if (now - dayStart > DAY_MS) {

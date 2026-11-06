@@ -3,11 +3,16 @@
 import { useCallback, useEffect, useRef, useState, useReducer } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { AppState, AppAction, FinancialProfile, PathfinderResult, SearchMetadata, QuickAction, AppliedSummary, CustomFund, DebugLog } from '@/lib/types';
+import { api } from '@/client/api';
+import { useCloudBudget } from '@/client/use-cloud-budget';
 import { DEFAULT_PROFILE } from '@/lib/defaults';
 import { applyConfirmedActions } from '@/lib/apply-actions';
 import { addQuickEntry, defaultMonth, emptyBudget, loadBudget, profileWithBudget, saveBudget } from '@/lib/budget';
 import type { Budget, ImportSummary } from '@/lib/budget';
 import type { Insight } from '@/lib/agent-insights';
+import type { GoogleAccess } from '@/lib/gmail';
+import { checkIn as countCheckIn } from '@/lib/points';
+import { localDay } from '@/lib/streak';
 import { getMoneyPicture, grossFromTakeHome } from '@/lib/money';
 import { clearEverything, loadSession, saveSession } from '@/lib/session';
 import type { Session } from '@/lib/session';
@@ -20,11 +25,13 @@ import ThinkingView from '@/components/thinking/ThinkingView';
 import PlanView from '@/components/plan/PlanView';
 import QuestionFlow from '@/components/setup/QuestionFlow';
 import AgentRun from '@/components/agent/AgentRun';
-import SignIn from '@/components/auth/SignIn';
 import AppShell from '@/components/app/AppShell';
-import type { Section } from '@/components/app/AppShell';
+import type { Section, View } from '@/components/app/AppShell';
+import AskSheet from '@/components/dashboard/AskSheet';
+import GameCard from '@/components/dashboard/GameCard';
+import TodayCard from '@/components/dashboard/TodayCard';
+import type { BudgetActions } from '@/components/budget/BudgetView';
 import ConnectionsPage from '@/components/dashboard/ConnectionsPage';
-import Dashboard from '@/components/dashboard/Dashboard';
 import Landing from '@/components/landing/Landing';
 
 function appReducer(state: AppState, action: AppAction): AppState {
@@ -186,7 +193,8 @@ export type PipelineStepStatus = { id: string; status: 'active' | 'complete'; la
 /** An iPhone Shortcut can open /?spent=12.50&at=Starbucks after each Apple Pay tap. */
 function readWalletLink(): { amount: number; description: string } | null {
   const params = new URLSearchParams(window.location.search);
-  const amount = Number(params.get('spent'));
+  // Shortcuts can send the amount with its currency, like CA$12.50
+  const amount = Number(params.get('spent')?.replace(/[^\d.]/g, ''));
   const description = params.get('at')?.trim();
   return amount > 0 && description ? { amount, description } : null;
 }
@@ -200,7 +208,18 @@ function hasSavedNumbers(): boolean {
   }
 }
 
-type Entry = 'landing' | 'signin' | 'google' | 'demo';
+type Entry = 'landing' | 'google' | 'demo';
+
+function greeting(name: string): string {
+  const hour = new Date().getHours();
+  const part = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  return name ? `${part}, ${name.split(' ')[0]}` : part;
+}
+
+const DAY_MS = 86_400_000;
+const DEMO_STREAK_DAYS = 4;
+
+const LOOK_FOR_TAPS_MS = 60_000;
 
 export default function HomeClient() {
   const [state, dispatch] = useReducer(appReducer, undefined, createInitialState);
@@ -209,7 +228,9 @@ export default function HomeClient() {
   const [session, setSession] = useState<Session | null>(() => loadSession() ?? (shared || walletEntry ? { name: '', email: '', kind: 'demo' } : null));
   const [entry, setEntry] = useState<Entry>('landing');
   const [signInProblem, setSignInProblem] = useState<string | null>(null);
-  const [section, setSection] = useState<Section>(walletEntry ? 'budget' : shared ? 'plans' : 'home');
+  const [access, setAccess] = useState<GoogleAccess | null>(null);
+  const [section, setSection] = useState<Section>(shared ? 'plans' : 'budget');
+  const [view, setView] = useState<View>('month');
   const [budget, setBudget] = useState<Budget | null>(() => {
     const saved = loadBudget();
     if (!walletEntry) return saved;
@@ -218,8 +239,10 @@ export default function HomeClient() {
   const [hasNumbers, setHasNumbers] = useState(hasSavedNumbers);
   const [pendingEvent, setPendingEvent] = useState<string | null>(null);
   const [shareToast, setShareToast] = useState<string | null>(null);
-  const [report, setReport] = useState<ImportSummary | null>(null);
   const [fillKey, setFillKey] = useState(0);
+  const [checkIn, setCheckIn] = useState<{ found: number | null; problem: string | null } | null>(null);
+  const [openWallet, setOpenWallet] = useState(false);
+  const [asking, setAsking] = useState(false);
   const [month, setMonth] = useState<string>(() => defaultMonth(budget ?? emptyBudget(), new Date()));
   const sharedHydratedRef = useRef(false);
 
@@ -228,11 +251,10 @@ export default function HomeClient() {
   const onImported = useCallback((next: Budget, summary: ImportSummary, nextMonth: string) => {
     setBudget(next);
     setMonth(nextMonth);
-    setReport(summary);
     setFillKey((key) => key + 1);
   }, []);
 
-  const { steps, error, addFile, connectGmail } = useBudgetImport({ budget, fallbackIncome, onImported });
+  const { steps, error, addFile, addFiles, connectGmail, connectBank, checkConnected, lookForTaps, rethink } = useBudgetImport({ budget, fallbackIncome, email: session?.email, onImported });
 
   useEffect(() => {
     if (sharedHydratedRef.current) return;
@@ -255,6 +277,34 @@ export default function HomeClient() {
   useEffect(() => {
     saveBudget(budget);
   }, [budget]);
+
+  useCloudBudget(session?.kind === 'google', budget, setBudget);
+
+  const needsRethink = session?.kind === 'google' && !!budget?.transactions.length && !budget.rhythms;
+  useEffect(() => {
+    if (needsRethink) void rethink().then((next) => { if (next) setBudget(next); });
+  }, [needsRethink, rethink]);
+
+  // Wallet taps and bank lines wait on the server, so anyone signed in could have some
+  const canHaveSightings = session?.kind === 'google';
+  useEffect(() => {
+    if (canHaveSightings) void checkConnected();
+    // Once per visit: the server throttles anything more
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canHaveSightings]);
+
+  // A tap reaches the server in seconds, so keep looking while someone's here, and when they come back
+  const quiet = !steps;
+  useEffect(() => {
+    if (!canHaveSightings || !quiet) return;
+    const look = () => { if (document.visibilityState === 'visible') void lookForTaps(); };
+    const timer = window.setInterval(look, LOOK_FOR_TAPS_MS);
+    document.addEventListener('visibilitychange', look);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', look);
+    };
+  }, [canHaveSightings, quiet, lookForTaps]);
 
   useEffect(() => {
     if (!walletEntry) return;
@@ -368,10 +418,18 @@ export default function HomeClient() {
   const finishRun = useCallback((next: Budget | null, user: Session) => {
     saveSession(user);
     setSession(user);
-    setSection('home');
+    setSection('budget');
     setSignInProblem(null);
     if (next) {
-      setBudget(next);
+      // The first look is day one. The demo family has already been at it for a few days
+      const demo = {
+        checkIns: Array.from({ length: DEMO_STREAK_DAYS }, (_, index) => localDay(new Date(Date.now() - (DEMO_STREAK_DAYS - index) * DAY_MS))),
+        points: [
+          { id: 'connected:gmail', date: localDay(), label: 'Connected Gmail', points: 100 },
+          { id: 'demo:days', date: localDay(), label: 'Checked in 4 days', points: 40 },
+        ],
+      };
+      setBudget(user.kind === 'demo' ? { ...next, ...demo } : countCheckIn(next, localDay()));
       setMonth(defaultMonth(next, new Date()));
       setFillKey((key) => key + 1);
       if (user.kind === 'demo') {
@@ -387,41 +445,59 @@ export default function HomeClient() {
 
   const failRun = useCallback((problem: string) => {
     setSignInProblem(problem);
-    setEntry('signin');
+    setEntry('landing');
   }, []);
+
+  /** One click: bring in what's new from Gmail and Apple Wallet, then count the day. */
+  const handleCheckIn = useCallback(async () => {
+    const real = session?.kind === 'google';
+    const fromBank = real ? await checkConnected() : 0;
+    const found = real ? await connectGmail() : 0;
+    // A look that didn't work isn't a look, so the button stays for another try
+    if (found === null) {
+      return;
+    }
+    setBudget((current) => countCheckIn(current ?? emptyBudget(), localDay()));
+    setCheckIn({ found: found + fromBank, problem: null });
+    playSound('complete');
+  }, [session, connectGmail, checkConnected]);
 
   const signOut = useCallback(() => {
     clearEverything();
-    window.location.assign(window.location.pathname);
+    void api.endSession().catch(() => undefined).finally(() => window.location.assign(window.location.pathname));
   }, []);
 
   const handleInsight = useCallback((insight: Insight) => {
     if (insight.action === 'plan' && insight.prompt) handleEventSubmit(insight.prompt);
-    else if (insight.action === 'connect') setSection('connections');
-    else setSection('budget');
-  }, [handleEventSubmit]);
+    else if (insight.action === 'connect' && session?.kind === 'google') void handleCheckIn();
+    else if (insight.action === 'wallet') {
+      setOpenWallet(true);
+      setSection('connections');
+    }
+    else if (insight.action === 'connect' || insight.action === 'bank') setSection('connections');
+  }, [handleEventSubmit, handleCheckIn, session]);
+
+  /** The agent's notes act right there on the budget beside them. */
+  const chooseInsight = (insight: Insight, actions: BudgetActions) => {
+    if (insight.action === 'open' && insight.transactionId) actions.openPurchase(insight.transactionId);
+    else if (insight.action === 'category' && insight.categoryId) actions.openCategory(insight.categoryId);
+    else if (insight.action === 'bills') actions.openBills();
+    else if (insight.action === 'sort') actions.review();
+    else if (insight.action === 'approve' && insight.change) actions.setBudgetFor(insight.change.categoryId, insight.change.amount);
+    else handleInsight(insight);
+  };
 
   if (!session) {
     if (entry === 'google' || entry === 'demo') {
-      return <AgentRun key={entry} mode={entry} onDone={finishRun} onFailed={failRun} />;
+      return <AgentRun key={entry} mode={entry} access={access} onDone={finishRun} onFailed={failRun} />;
     }
-    if (entry === 'signin') {
-      return (
-        <SignIn
-          problem={signInProblem}
-          onGoogle={() => setEntry('google')}
-          onDemo={() => setEntry('demo')}
-          onBack={() => setEntry('landing')}
-        />
-      );
-    }
-    return <Landing onStart={() => setEntry('signin')} onDemo={() => setEntry('demo')} />;
+    return <Landing problem={signInProblem} onGoogle={(granted) => { setAccess(granted); setEntry('google'); }} onDemo={() => setEntry('demo')} />;
   }
 
   const screen = section !== 'plans' ? section : pendingEvent !== null ? 'questions' : state.step;
 
   return (
-    <AppShell section={section} session={session} onNavigate={(next) => { setSection(next); playSound('tap'); }} onSignOut={signOut}>
+    <AppShell section={section} view={view} session={session} steps={steps} onNavigate={(next) => { setOpenWallet(false); setSection(next); playSound('tap'); }} onView={(next) => { setOpenWallet(false); setSection('budget'); setView(next); playSound('tap'); }} onAsk={() => { if (budget?.transactions.length) setAsking(true); else setSection('plans'); }} onSignOut={signOut}>
       <AnimatePresence mode="wait">
         <motion.div
           key={screen}
@@ -431,37 +507,52 @@ export default function HomeClient() {
           exit={{ opacity: 0 }}
           transition={{ duration: 0.12 }}
         >
-          {section === 'home' && (
-            <Dashboard
-              session={session}
-              budget={budget}
-              month={month}
-              onInsight={handleInsight}
-              onAsk={handleEventSubmit}
-              onOpenBudget={() => setSection('budget')}
-            />
-          )}
-
           {section === 'budget' && (
             <BudgetScreen
               budget={budget}
               profile={state.profile}
               customFunds={state.customFunds}
               hasNumbers={hasNumbers}
-              report={report}
               fillKey={fillKey}
               month={month}
               steps={steps}
               problem={error}
               onMonthChange={setMonth}
               onChange={setBudget}
+              greeting={greeting(session.name)}
+              game={() => (
+                <GameCard
+                  budget={budget}
+                  busy={!!steps}
+                  checkIn={checkIn && { ...checkIn, problem: error }}
+                  onCheckIn={() => void handleCheckIn()}
+                  onCloseCheckIn={() => setCheckIn(null)}
+                />
+              )}
+              view={view}
+              onView={setView}
+              today={(actions, isSample) => (
+                <TodayCard
+                  session={session}
+                  budget={budget}
+                  month={month}
+                  working={!!steps}
+                  isSample={isSample}
+                  onChoose={(insight) => chooseInsight(insight, actions)}
+                  onSetIncome={(income) => setBudget((current) => current && { ...current, income })}
+                />
+              )}
               onAddFile={addFile}
               onUpdateProfile={handleBudgetProfile}
+              onConnect={() => {
+                if (session.kind === 'google') void handleCheckIn();
+                else setSection('connections');
+              }}
             />
           )}
 
           {section === 'connections' && (
-            <ConnectionsPage session={session} budget={budget} steps={steps} problem={error} onCheckGmail={connectGmail} onFile={(file) => void addFile(file)} />
+            <ConnectionsPage session={session} budget={budget} steps={steps} problem={error} onCheckGmail={() => void connectGmail()} onAddInbox={() => void connectGmail(undefined, true)} onConnectBank={connectBank} onCheckConnected={checkConnected} openWallet={openWallet} onFiles={(files, source) => void addFiles(files, source)} />
           )}
 
           {section === 'plans' && (pendingEvent !== null ? (
@@ -470,6 +561,7 @@ export default function HomeClient() {
             <>
               {state.step === 'home' && (
                 <HomeScreen
+                  hasNumbers={hasNumbers || session.kind === 'demo'}
                   profile={state.profile}
                   customFunds={state.customFunds}
                   appliedSummary={state.appliedSummary}
@@ -517,6 +609,9 @@ export default function HomeClient() {
             </>
           ))}
         </motion.div>
+      </AnimatePresence>
+      <AnimatePresence>
+        {asking && budget && <AskSheet budget={budget} onPlan={() => { setAsking(false); setSection('plans'); }} onClose={() => setAsking(false)} />}
       </AnimatePresence>
     </AppShell>
   );

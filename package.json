@@ -12,15 +12,26 @@
     "test": "vitest run",
     "eval": "vitest run evals",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node scripts/migrate.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
+    "@electric-sql/pglite": "^0.5.15",
     "@google/genai": "^1.43.0",
+    "drizzle-orm": "^0.45.4",
     "framer-motion": "^12.34.3",
+    "jose": "^6.2.15",
+    "lucide-react": "^1.68.0",
     "next": "16.1.6",
+    "plaid": "^50.0.0",
+    "postgres": "^4.0.0",
+    "qrcode-generator": "^2.0.4",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "stripe": "^23.1.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
@@ -29,6 +40,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^5.1.4",
+    "drizzle-kit": "^0.31.11",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",

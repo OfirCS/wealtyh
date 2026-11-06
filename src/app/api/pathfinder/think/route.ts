@@ -4,7 +4,7 @@ import { checkRateLimit, rateLimitHeaders } from '@/lib/rate-limit';
 import { validatePathfinderInput } from '@/lib/validate-request';
 
 export async function POST(request: NextRequest) {
-  const limit = checkRateLimit(request);
+  const limit = await checkRateLimit(request);
   if (!limit.ok) {
     return NextResponse.json(
       { error: 'Rate limit exceeded', retryAfter: limit.retryAfterSeconds },

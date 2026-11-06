@@ -9,35 +9,32 @@ export interface AgentStep {
   detail?: string;
 }
 
-/** What the agent is doing right now. Used everywhere it works, so it always feels like one agent. */
+/** The agent prints its work as it goes. Used everywhere it works, so it always feels like one agent. */
 export default function AgentSteps({ steps }: { steps: AgentStep[] }) {
   return (
-    <ol className="flex flex-col gap-2.5" aria-live="polite">
-      <AnimatePresence initial={false}>
-        {steps.map((step) => (
-          <motion.li
-            key={step.id}
-            className="flex items-baseline gap-3 text-[17px]"
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ type: 'spring', bounce: 0, duration: 0.35 }}
-          >
-            <span aria-hidden className="flex w-4 shrink-0 justify-center">
-              {step.status === 'complete' ? (
-                <span>✓</span>
-              ) : (
-                <motion.span
-                  className="inline-block h-2 w-2 rounded-full bg-[var(--pf-text-primary)]"
-                  animate={{ opacity: [1, 0.2, 1] }}
-                  transition={{ duration: 0.9, repeat: Infinity }}
-                />
-              )}
-            </span>
-            <span className={`shrink-0 ${step.status === 'complete' ? 'text-[var(--pf-text-secondary)]' : ''}`}>{step.label}</span>
-            {step.detail && <span className="min-w-0 truncate text-[14px] text-[var(--pf-text-tertiary)]">{step.detail}</span>}
-          </motion.li>
-        ))}
-      </AnimatePresence>
-    </ol>
+    <div className="pf-tape">
+      <div aria-hidden className="pf-tape-slot" />
+      <div className="pf-tape-shadow">
+        <ol className="pf-receipt flex flex-col gap-1 px-4 pb-5 pt-3 text-[13px] uppercase leading-snug" aria-live="polite">
+          <AnimatePresence initial={false}>
+            {steps.map((step) => (
+              <motion.li
+                key={step.id}
+                className="flex items-baseline gap-1.5 overflow-hidden"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                transition={{ type: 'spring', bounce: 0, duration: 0.28 }}
+              >
+                <span className="min-w-0 truncate">{step.label}</span>
+                <span aria-hidden className="pf-tape-leader" />
+                {step.status === 'complete'
+                  ? <span className="max-w-[55%] shrink-0 truncate">{step.detail || 'OK'}</span>
+                  : <span aria-hidden className="pf-tape-cursor" />}
+              </motion.li>
+            ))}
+          </AnimatePresence>
+        </ol>
+      </div>
+    </div>
   );
 }

@@ -1,5 +1,4 @@
 import { NextRequest } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenAI } from '@google/genai';
 import { buildPathfinderSystemPrompt, buildUserMessage, getCanadianRuleSet } from '@/lib/prompts';
 import {
@@ -9,6 +8,7 @@ import {
   parsePathfinderResult,
   applyPostParseGuardrails,
 } from '@/lib/pathfinder-engine';
+import { draftPlan, quickPlans } from '@/lib/plan-model';
 import type { DebugLogEntry } from '@/lib/types';
 import { checkRateLimit, rateLimitHeaders } from '@/lib/rate-limit';
 import { validatePathfinderInput } from '@/lib/validate-request';
@@ -21,20 +21,8 @@ async function callGenerate(system: string, userMessage: string): Promise<string
 
   if (anthropicKey) {
     try {
-      const claude = new Anthropic({ apiKey: anthropicKey });
-      console.info('[Stream] Calling Claude claude-sonnet-4-6...');
-      const msg = await claude.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 16384,
-        system,
-        messages: [{ role: 'user', content: userMessage }],
-        temperature: 0.3,
-      });
-      const text = msg.content[0]?.type === 'text' ? msg.content[0].text : '';
-      if (text) {
-        console.info(`[Stream] Claude responded (${text.length} chars)`);
-        return text;
-      }
+      const text = await draftPlan(anthropicKey, system, userMessage);
+      if (text) return text;
       console.warn('[Stream] Claude returned empty, falling back to Gemini');
     } catch (err) {
       console.warn('[Stream] Claude failed, falling back to Gemini:', err instanceof Error ? err.message : String(err));
@@ -63,7 +51,7 @@ export async function POST(request: NextRequest) {
     return new Response(JSON.stringify({ error: 'No AI API keys configured', code: NO_AI_KEYS }), { status: 503 });
   }
 
-  const limit = checkRateLimit(request);
+  const limit = await checkRateLimit(request);
   if (!limit.ok) {
     const message = limit.reason === 'global'
       ? 'Pathfinder is over its daily AI budget. Please come back tomorrow.'
@@ -149,7 +137,7 @@ export async function POST(request: NextRequest) {
         // ── Search (if needed) ──
         let searchContext: string | null = null;
         let searchMetadata = null;
-        if (route.needs_search && route.queries.length > 0) {
+        if (route.needs_search && route.queries.length > 0 && !quickPlans()) {
           send({ type: 'step', id: 'search', status: 'active', label: 'Searching the web', detail: route.queries[0] });
           try {
             const searchResult = await searchForContext(route.queries);

@@ -2,37 +2,64 @@
   color-scheme: light;
 
   /* Warm paper, soft white cards, near-black ink */
-  --pf-bg-primary: #FBF9F4;
-  --pf-bg-surface: #FFFFFF;
-  --pf-bg-elevated: #F4F0E7;
-  --pf-bg-dark: #E9E4D8;
-  --pf-bg-hover: #EFEADF;
-  --pf-bg-advisor: #F4F0E7;
+  --pf-bg-primary: #F5F4F0;
+  --pf-bg-surface: #FEFEFD;
+  --pf-bg-elevated: #EFEDE7;
+  --pf-bg-dark: #E2DFD7;
+  --pf-bg-hover: #F1EFEA;
+  --pf-bg-advisor: #EFEDE7;
 
-  --pf-text-primary: #1C1B18;
-  --pf-text-secondary: #5C5A52;
-  --pf-text-tertiary: #75716A;
-  --pf-text-inverse: #FFFFFF;
+  --pf-text-primary: #1C1B1B;
+  --pf-text-secondary: #6E6B66;
+  --pf-text-tertiary: #6E6B66;
+  --pf-text-inverse: #FEFEFD;
 
   /* Only ever used to mean "fine" or "needs attention" */
-  --pf-good: #2F7A5B;
-  --pf-good-soft: #E3F1EA;
-  --pf-warn: #BC4B32;
-  --pf-warn-soft: #FAE8E2;
+  --pf-good: #2A7555;
+  --pf-good-soft: #E2F0E8;
+  --pf-tight: #D98A0B;
+  --pf-warn: #B5432B;
+  --pf-warn-soft: #F9E7E1;
 
-  --pf-accent-green: #2F7A5B;
-  --pf-accent-red: #BC4B32;
+  --pf-accent-green: #2A7555;
+  --pf-accent-red: #B5432B;
 
-  --pf-border: #E8E3D8;
-  --pf-border-hover: #1C1B18;
+  --pf-border: #E3E0D9;
+  --pf-border-hover: #1C1B1B;
 }
 
 :root {
   /* The agent's colour. Used only for what the agent is doing or asking. */
   --pf-agent: #D6F35B;
-  --pf-ink: #0E0E0C;
-  --pf-ink-soft: #1C1C19;
-  --pf-ink-line: rgba(246, 243, 236, 0.14);
-  --pf-ivory: #F6F3EC;
-  --pf-ivory-dim: rgba(246, 243, 236, 0.62);
+  --pf-ink: #1C1B1B;
+  --pf-ink-soft: #2C2B2A;
+  --pf-ink-line: rgba(254, 254, 253, 0.14);
+  --pf-ivory: #FEFEFD;
+  --pf-ivory-dim: rgba(254, 254, 253, 0.64);
+
+  /* Soft category tints, so a list can be read at a glance */
+  --pf-tint-periwinkle: #E4E4F6;
+  --pf-tint-sage: #DFECD9;
+  --pf-tint-butter: #F4EAC6;
+  --pf-tint-sky: #DAE8F3;
+  --pf-tint-peach: #F9E1D5;
+  --pf-tint-blush: #F6DFE4;
+  --pf-tint-apricot: #F7E5CD;
+  --pf-tint-lilac: #EBE0F1;
+  --pf-tint-mint: #D9EEE6;
+  --pf-tint-stone: #E9E6DF;
+}
+
+:root {
+  /* Each kind of money has one colour, everywhere it appears */
+  --pf-bills: #F6E6AE;
+  --pf-bills-ink: #6A4E00;
+  --pf-everyday: #CDE9D3;
+  --pf-everyday-ink: #1E5B3A;
+  --pf-once: #E6D9F5;
+  --pf-once-ink: #543182;
+
+  /* The game is the one place that gets to be loud */
+  --pf-flame: #FF6B2C;
+  --pf-gold: #FFC53D;
 }

@@ -20,6 +20,9 @@
 # production
 /build
 
+# local database
+/.data/
+
 # misc
 .DS_Store
 *.pem
@@ -55,3 +58,6 @@ transition-screenshots/
 
 # eval run artifact (regenerated; RESULTS.md is the committed snapshot)
 evals/results.json
+
+# netlify
+.netlify

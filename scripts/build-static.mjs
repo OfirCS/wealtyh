@@ -16,6 +16,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, '..');
 const apiDir = join(root, 'src', 'app', 'api');
 const apiStash = join(root, '.api-stash');
+const proxyFile = join(root, 'src', 'proxy.ts');
+const proxyStash = join(root, '.proxy-stash');
 const outDir = join(root, 'out');
 
 let moved = false;
@@ -26,6 +28,7 @@ function restore() {
     moved = false;
     console.log('[build-static] Restored src/app/api');
   }
+  if (existsSync(proxyStash)) renameSync(proxyStash, proxyFile);
 }
 
 process.on('exit', restore);
@@ -33,6 +36,7 @@ process.on('SIGINT', () => { restore(); process.exit(130); });
 process.on('SIGTERM', () => { restore(); process.exit(143); });
 
 try {
+  if (existsSync(proxyFile)) renameSync(proxyFile, proxyStash);
   if (existsSync(apiDir)) {
     if (existsSync(apiStash)) {
       console.error('[build-static] ERROR: .api-stash already exists. Aborting.');

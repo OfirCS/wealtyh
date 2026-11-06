@@ -15,7 +15,7 @@ body {
 body {
   background: var(--pf-bg-primary);
   color: var(--pf-text-primary);
-  font-family: var(--font-instrument), system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
   font-feature-settings: "tnum" 1;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -25,6 +25,7 @@ body {
   font-family: var(--font-newsreader), Georgia, "Times New Roman", serif;
   font-weight: 400;
   letter-spacing: -0.02em;
+  font-optical-sizing: auto;
 }
 
 .hide-scrollbar::-webkit-scrollbar {
@@ -46,9 +47,10 @@ body {
   outline-offset: 2px;
 }
 
-/* Text fields show focus on their own underline or background */
+/* Text fields and sheets draw their own focus */
 input:focus-visible,
-textarea:focus-visible {
+textarea:focus-visible,
+[data-own-focus]:focus-visible {
   outline: none;
 }
 
@@ -57,13 +59,19 @@ textarea:focus-visible {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  height: 48px;
-  padding: 0 24px;
-  border-radius: 999px;
-  font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
   transition: transform 140ms ease, background-color 140ms ease, color 140ms ease, opacity 140ms ease;
+}
+
+/* In a layer, so a button can set its own size with a utility */
+@layer components {
+  .pf-btn {
+    height: 48px;
+    padding: 0 24px;
+    border-radius: 10px;
+    font-size: 15px;
+  }
 }
 
 .pf-btn:active:not(:disabled) {
@@ -81,50 +89,425 @@ textarea:focus-visible {
 }
 
 .pf-btn-primary:hover:not(:disabled) {
-  background: #3A3833;
+  background: #3B3A38;
 }
 
+.pf-card {
+  background: var(--pf-bg-surface);
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 1px var(--pf-border);
+}
+
+/* A section's name, on the colour that kind of money always has */
+.pf-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.pf-tag-small {
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.pf-tag-bills {
+  background: var(--pf-bills);
+  color: var(--pf-bills-ink);
+}
+
+.pf-tag-everyday {
+  background: var(--pf-everyday);
+  color: var(--pf-everyday-ink);
+}
+
+.pf-tag-once {
+  background: var(--pf-once);
+  color: var(--pf-once-ink);
+}
+
+/* The streak is a punch card: the one bright thing in the ledger, so the eye lands on it */
+.pf-punch {
+  background: var(--pf-flame);
+  color: var(--pf-ink);
+}
+
+.pf-punch-spot {
+  position: relative;
+  width: var(--pf-spot, 24px);
+  height: var(--pf-spot, 24px);
+  flex: none;
+  border-radius: 50%;
+  background: rgba(28, 27, 27, 0.13);
+}
+
+.pf-punch-spot > span {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--pf-ink);
+  color: var(--pf-agent);
+}
+
+/* Today's spot, still open */
+.pf-punch-next {
+  background: none;
+  animation: pf-punch-wait 1.6s ease-in-out infinite;
+}
+
+@keyframes pf-punch-wait {
+  0%, 100% { box-shadow: inset 0 0 0 2px var(--pf-ink), 0 0 0 0 rgba(28, 27, 27, 0.32); }
+  50% { box-shadow: inset 0 0 0 2px var(--pf-ink), 0 0 0 5px rgba(28, 27, 27, 0); }
+}
+
+.pf-punch-spot svg {
+  width: 60%;
+  height: 60%;
+}
+
+/* The last spot on the card pays out */
+.pf-punch-reward {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--pf-gold);
+}
+
+/* The same card, laid out big on the landing page */
+.pf-punch-large {
+  --pf-spot: clamp(30px, 3.2vw, 44px);
+}
+
+/* Beside the big number on a phone, and spread out along the side on a big screen */
+.pf-punch-card {
+  --pf-spot: 18px;
+}
+
+@media (min-width: 1024px) {
+  .pf-punch-card {
+    --pf-spot: 28px;
+  }
+}
+
+.pf-punch-won {
+  background: var(--pf-ink);
+  color: var(--pf-gold);
+}
+
+/* Every list in the app is this one row, so everything lines up */
+.pf-row {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: var(--pf-row, 44px);
+  align-items: center;
+  gap: 12px;
+}
+
+/* A section's heading stays small, whatever size its rows are */
+.pf-row-head {
+  height: 32px;
+}
+
+/* The ledger breathes on a tall screen and tightens on a short one */
+.pf-ledger {
+  --pf-row: 44px;
+}
+
+@media (min-width: 1024px) {
+  .pf-ledger {
+    --pf-row: clamp(44px, 6.6vh, 60px);
+  }
+}
+
+.pf-row-button {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  width: calc(100% + 16px);
+  margin: 0 -8px;
+  padding: 0 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 120ms ease;
+}
+
+.pf-row-button:hover {
+  background: var(--pf-bg-hover);
+}
+
+/* One rule under every row. Where it shows spending, it fills up */
+.pf-rule {
+  position: absolute;
+  right: 8px;
+  bottom: 0;
+  left: 8px;
+  height: 3px;
+}
+
+.pf-rule-flat {
+  right: 0;
+  left: 0;
+}
+
+.pf-rule-block {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  display: block;
+}
+
+.pf-rule::before {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 1px;
+  background: var(--pf-border);
+}
+
+.pf-rule > span {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  border-radius: 2px;
+  transition: width 500ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.pf-number {
+  font-family: var(--font-newsreader), Georgia, serif;
+  font-size: 40px;
+  line-height: 44px;
+  letter-spacing: -0.02em;
+}
+
+.pf-title {
+  font-family: var(--font-newsreader), Georgia, serif;
+  font-size: 24px;
+  line-height: 28px;
+  letter-spacing: -0.015em;
+}
+
+/* The tear-off stub under the card */
+.pf-stub {
+  position: relative;
+  background-color: var(--pf-tint-peach);
+  background-image: radial-gradient(circle, rgba(28, 27, 27, 0.32) 1.25px, transparent 1.75px);
+  background-position: top center;
+  background-repeat: repeat-x;
+  background-size: 9px 4px;
+}
+
+.pf-stub::before,
+.pf-stub::after {
+  content: "";
+  position: absolute;
+  top: -7px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--pf-bg-primary);
+}
+
+.pf-stub::before {
+  left: -7px;
+}
+
+.pf-stub::after {
+  right: -7px;
+}
+
+.pf-flame {
+  background: linear-gradient(145deg, #FFB03A 0%, var(--pf-flame) 55%, #E8392B 100%);
+  box-shadow: 0 6px 16px rgba(255, 107, 44, 0.38);
+}
+
+/* The agent's colour on a button */
 .pf-btn-agent {
   background: var(--pf-agent);
   color: var(--pf-ink);
 }
 
 .pf-btn-agent:hover:not(:disabled) {
-  background: #E2F97C;
+  background: #CBE94C;
 }
 
-.pf-btn-outline-dark {
-  box-shadow: inset 0 0 0 1px var(--pf-ink-line);
-  color: var(--pf-ivory);
+/* A quiet action inside a list, so a screen of rows doesn't become a wall of buttons */
+.pf-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  color: var(--pf-text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+  transition: text-decoration-color 140ms ease, opacity 140ms ease;
 }
 
-.pf-btn-outline-dark:hover:not(:disabled) {
-  background: var(--pf-ink-soft);
+.pf-action svg {
+  color: var(--pf-text-tertiary);
+  transition: transform 140ms ease, color 140ms ease;
 }
 
-.pf-card {
-  background: var(--pf-bg-surface);
-  border-radius: 20px;
-  box-shadow: 0 1px 2px rgba(40, 34, 20, 0.05), 0 8px 24px rgba(40, 34, 20, 0.04);
+.pf-action:hover:not(:disabled) {
+  text-decoration-color: currentColor;
+}
+
+.pf-action:hover:not(:disabled) svg {
+  color: currentColor;
+  transform: translateX(2px);
+}
+
+.pf-action:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* Section headings, the way a ledger labels its columns */
+.pf-label {
+  color: var(--pf-text-tertiary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* The agent's pilot light */
+.pf-light {
+  display: inline-block;
+  border-radius: 999px;
+  background: var(--pf-agent);
+  box-shadow: 0 0 0 1px rgba(28, 27, 27, 0.28);
+}
+
+.pf-light-dark {
+  box-shadow: none;
+}
+
+.pf-light-on {
+  animation: pf-breathe 1.5s ease-in-out infinite;
+}
+
+@keyframes pf-breathe {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(28, 27, 27, 0.28), 0 0 0 0 rgba(214, 243, 91, 0.9); }
+  50% { box-shadow: 0 0 0 1px rgba(28, 27, 27, 0.28), 0 0 0 6px rgba(214, 243, 91, 0); }
+}
+
+/* The agent's work prints out of a slot */
+.pf-tape {
+  width: 100%;
+}
+
+.pf-tape-slot {
+  position: relative;
+  z-index: 1;
+  height: 7px;
+  border-radius: 4px;
+  background: var(--pf-ink);
+}
+
+.pf-tape-shadow {
+  margin: -3px 10px 0;
+  filter: drop-shadow(0 6px 10px rgba(28, 27, 27, 0.12));
+}
+
+.pf-tape-leader {
+  flex: 1 1 12px;
+  min-width: 12px;
+  align-self: flex-end;
+  margin-bottom: 0.32em;
+  border-bottom: 1.5px dotted rgba(28, 27, 27, 0.32);
+}
+
+.pf-tape-cursor {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 0.6em;
+  height: 1em;
+  background: var(--pf-ink);
+  animation: pf-cursor 0.9s steps(2, jump-none) infinite;
+}
+
+@keyframes pf-cursor {
+  from { opacity: 1; }
+  to { opacity: 0.15; }
+}
+
+.pf-mono {
+  font-family: var(--font-receipt), "Courier New", monospace;
+}
+
+/* Long reading, for the privacy policy and terms */
+.pf-legal {
+  color: var(--pf-text-primary);
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.pf-legal h2 {
+  margin-top: 28px;
+  font-family: var(--font-newsreader), Georgia, serif;
+  font-size: 24px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.pf-legal p,
+.pf-legal ul {
+  margin-top: 8px;
+}
+
+.pf-legal li {
+  margin-top: 6px;
+  padding-left: 16px;
+  text-indent: -16px;
+}
+
+.pf-legal li::before {
+  content: "–";
+  display: inline-block;
+  width: 16px;
+  text-indent: 0;
+  color: var(--pf-text-tertiary);
+}
+
+.pf-legal a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* A total, ruled off the way a ledger does it */
+.pf-total {
+  border-top: 1px solid var(--pf-text-primary);
+  border-bottom: 3px double var(--pf-text-primary);
 }
 
 .pf-hero-title {
-  font-size: clamp(38px, min(6.6vw, 11vh), 92px);
-  line-height: 0.98;
+  font-size: clamp(44px, min(6.4vw, 11vh), 100px);
+  line-height: 1.03;
   letter-spacing: -0.03em;
 }
 
-.pf-grid-dark {
-  background-image:
-    linear-gradient(var(--pf-ink-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--pf-ink-line) 1px, transparent 1px);
-  background-size: 64px 64px;
-  mask-image: radial-gradient(70% 70% at 70% 45%, black, transparent);
-}
-
 @keyframes pf-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(214, 243, 91, 0.55); }
-  50% { box-shadow: 0 0 0 6px rgba(214, 243, 91, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(28, 27, 27, 0.28); }
+  50% { box-shadow: 0 0 0 7px rgba(28, 27, 27, 0); }
 }
 
 .pf-pulse {
@@ -165,8 +548,42 @@ textarea:focus-visible {
 }
 
 .pf-amount {
-  font-size: clamp(40px, min(8.5vw, 10.5vh), 88px);
+  font-size: clamp(60px, min(9vw, 12vh), 112px);
+  font-feature-settings: "lnum" 1, "pnum" 1;
+  letter-spacing: -0.03em;
   line-height: 1;
+}
+
+/* The one number on the budget */
+.pf-hero {
+  font-size: 72px;
+}
+
+@media (min-width: 1024px) {
+  .pf-hero {
+    font-size: 108px;
+  }
+}
+
+/* A raised dollar sign, the way a price is set in print */
+.pf-amount::first-letter {
+  margin-right: 0.05em;
+  font-size: 0.55em;
+  vertical-align: 0.56em;
+}
+
+/* The room a host's corner badge takes, so nothing tappable sits under it. See HostBadge. */
+.pf-host-badge {
+  --pf-badge-room: 58px;
+}
+
+/* A panel that scrolls fades out, so a list never looks cut off */
+@media (min-width: 1024px) {
+  .pf-fade-end {
+    padding-bottom: 28px;
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+  }
 }
 
 .pf-link {
@@ -221,4 +638,81 @@ textarea:focus-visible {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* The landing page: paper on a desk */
+.pf-paper {
+  background-color: var(--pf-bg-primary);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .11 0 0 0 0 .1 0 0 0 0 .1 0 0 0 .05 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.pf-receipt {
+  --tooth: 6px;
+  font-family: var(--font-receipt), "Courier New", monospace;
+  background: var(--pf-bg-surface);
+  -webkit-mask:
+    conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / calc(2 * var(--tooth)) var(--tooth) repeat-x,
+    linear-gradient(#000 0 0) top / 100% calc(100% - var(--tooth)) no-repeat;
+  mask:
+    conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / calc(2 * var(--tooth)) var(--tooth) repeat-x,
+    linear-gradient(#000 0 0) top / 100% calc(100% - var(--tooth)) no-repeat;
+}
+
+.pf-marker {
+  white-space: nowrap;
+  background: linear-gradient(var(--pf-agent), var(--pf-agent)) no-repeat 0 84% / 100% 0.42em;
+  animation: pf-marker 0.7s 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes pf-marker {
+  from { background-size: 0% 0.42em; }
+}
+
+.pf-section-title {
+  font-size: clamp(38px, 5.4vw, 72px);
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+}
+
+/* A row of a departure board: one side is the bank's, the other side is ours */
+.pf-flap {
+  height: 100%;
+  perspective: 900px;
+}
+
+.pf-flap-turn {
+  position: relative;
+  height: 100%;
+  transform-style: preserve-3d;
+}
+
+.pf-flap-face {
+  position: absolute;
+  inset: 0;
+  background: var(--pf-bg-surface);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.pf-flap-back {
+  transform: rotateX(180deg);
+}
+
+/* The real screen, framed */
+.pf-shot {
+  overflow: hidden;
+  max-height: 760px;
+  border-radius: 24px;
+  background: var(--pf-bg-primary);
+  box-shadow: inset 0 0 0 1px var(--pf-border), 0 40px 80px rgba(28, 27, 27, 0.14);
+  -webkit-mask-image: linear-gradient(#000 88%, transparent);
+  mask-image: linear-gradient(#000 88%, transparent);
+}
+
+.pf-question summary::-webkit-details-marker {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pf-marker { animation: none; }
 }

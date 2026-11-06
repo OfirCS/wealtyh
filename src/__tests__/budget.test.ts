@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   addQuickEntry,
   budgetFromProfile,
@@ -15,7 +15,7 @@ import {
   totalPlanned,
 } from '@/lib/budget';
 import { DEFAULT_PROFILE } from '@/lib/defaults';
-import { emailToText } from '@/lib/gmail';
+import { emailToText, parseWalletTap, readEmails } from '@/lib/gmail';
 import { cleanAgentRows, parseCsv, parseStatement, StatementError } from '@/lib/statement';
 import { sampleStatement } from '@/lib/sample-statement';
 
@@ -270,5 +270,191 @@ describe('emailToText', () => {
 
   it('falls back to the preview when there is no body', () => {
     expect(emailToText({ snippet: 'Paid $5', payload: { headers } })).toContain('Paid $5');
+  });
+
+  it('cleans a plain part that is really html', () => {
+    const css = '.m-title{font-size:16px}'.repeat(200);
+    const text = emailToText({ payload: { headers, mimeType: 'text/plain', body: { data: body(`Hungry?<!--[if mso]><style>${css}</style><![endif]--><style>${css}</style><table><tr><td>Order total</td><td>$13.10</td></tr></table>`) } } });
+    expect(text).toContain('Order total $13.10');
+    expect(text).not.toContain('font-size');
+  });
+
+  it('uses the html when the plain part has no amount', () => {
+    const text = emailToText({ payload: { headers, parts: [{ mimeType: 'text/plain', body: { data: body('Receipt App Store') } }, { mimeType: 'text/html', body: { data: body('<p>App Store</p><p>TOTAL $14.99</p>') } }] } });
+    expect(text).toContain('TOTAL $14.99');
+  });
+
+  it('removes links and invisible padding', () => {
+    const padding = '\u034f '.repeat(400);
+    const text = emailToText({ payload: { headers, mimeType: 'text/plain', body: { data: body(new TextDecoder('latin1').decode(new TextEncoder().encode(`${padding}Total $9.50 https://clicks.example.com/abc123`))) } } });
+    expect(text).toContain('Total $9.50');
+    expect(text).not.toContain('clicks.example.com');
+    expect(text.length).toBeLessThan(200);
+  });
+
+  it('keeps the total of a very long email, and every order in it', () => {
+    const items = Array.from({ length: 60 }, (_, index) => `Item number ${index} with a long product name that goes on and on`).join(' ');
+    const text = emailToText({ payload: { headers, mimeType: 'text/plain', body: { data: body(`Thanks ${items} First order Total 48.38 CAD ${items} Second order Total 14.68 CAD Unsubscribe here`) } } });
+    expect(text).toContain('Total 48.38 CAD');
+    expect(text).toContain('Total 14.68 CAD');
+    expect(text.length).toBeLessThan(2600);
+  });
+});
+
+describe('rows read from email', () => {
+  const emailed = (description: string, amount: number) => ({ date: '2026-10-16', description, amount, emailed: true });
+
+  it('never mistakes a refund for pay', () => {
+    const { budget } = importStatement([emailed('Amazon', 120), emailed('Fitrell Socks', -30.5)], null, 0);
+    expect(budget.income).toBe(0);
+    expect(budget.transactions.find((item) => item.amount < 0)?.categoryId).not.toBe('income');
+  });
+
+  it('keeps an e-Transfer, without asking about it', () => {
+    const { budget, summary } = importStatement([emailed('Jane Example (e-Transfer)', 889.5)], null, 0);
+    expect(budget.transactions[0]).toMatchObject({ categoryId: 'people', sure: true });
+    expect(summary.notCounted).toBe(0);
+  });
+
+  it('remembers once an e-Transfer has been sorted', () => {
+    const existing = { ...importStatement([], null, 0).budget, merchantRules: { 'JANE EXAMPLE': 'kids' } };
+    const { budget } = importStatement([emailed('Jane Example (e-Transfer)', 889.5)], existing, 0);
+    expect(budget.transactions[0]).toMatchObject({ categoryId: 'kids', sure: true });
+  });
+
+  it('trusts the agent on what a receipt was for', () => {
+    const { budget } = importStatement([{ ...emailed('Instacart', 254.81), category: 'groceries' }], null, 0);
+    expect(budget.transactions[0]).toMatchObject({ categoryId: 'groceries', sure: true });
+  });
+
+  it('puts the user\'s own choice ahead of the agent', () => {
+    const existing = { ...importStatement([], null, 0).budget, merchantRules: { INSTACART: 'kids' } };
+    const { budget } = importStatement([{ ...emailed('Instacart', 254.81), category: 'groceries' }], existing, 0);
+    expect(budget.transactions[0].categoryId).toBe('kids');
+  });
+
+  it('ignores a category it does not know', () => {
+    const { budget } = importStatement([{ ...emailed('Mystery Shop', 10), category: 'made-up' }], null, 0);
+    expect(budget.transactions[0]).toMatchObject({ categoryId: 'other', sure: false });
+  });
+
+  it('shows spending first seen in the month still underway', () => {
+    const rows = [{ ...emailed('Subway', 13.1), date: '2026-10-16', category: 'eating' }, { ...emailed('Instacart', 254.81), date: '2026-11-03', category: 'groceries' }];
+    const { budget } = importStatement(rows, null, 0);
+    expect(budget.categories.find((category) => category.id === 'groceries')?.planned).toBe(260);
+  });
+
+  it('still treats pay on a statement as money in', () => {
+    const { budget } = importStatement([{ date: '2026-10-16', description: 'Acme Payroll', amount: -3000 }], null, 0);
+    expect(budget.transactions[0].categoryId).toBe('income');
+  });
+});
+
+describe('Apple Wallet taps', () => {
+  it('reads the email the iPhone sends', () => {
+    expect(parseWalletTap('Pathfinder tap | CA$12.50 | Tim Hortons', '2026-11-04')).toEqual({ date: '2026-11-04', description: 'Tim Hortons', amount: 12.5, tapped: true });
+  });
+
+  it('copes with French and thousands formats', () => {
+    expect(parseWalletTap('Pathfinder tap | 12,50 $ | Metro', '2026-11-04')?.amount).toBe(12.5);
+    expect(parseWalletTap('Pathfinder tap | $1,234.56 | Ikea', '2026-11-04')?.amount).toBe(1234.56);
+  });
+
+  it('keeps a merchant with a bar in its name', () => {
+    expect(parseWalletTap('Pathfinder tap | $5.00 | Cafe | Bar', '2026-11-04')?.description).toBe('Cafe | Bar');
+  });
+
+  it('copes with a mail prefix on the subject', () => {
+    expect(parseWalletTap('Fwd: Pathfinder tap | $5.00 | Metro', '2026-11-04')?.amount).toBe(5);
+  });
+
+  it('ignores anything else, and a shortcut that was never finished', () => {
+    expect(parseWalletTap('Your receipt from Apple', '2026-11-04')).toBeNull();
+    expect(parseWalletTap('Pathfinder tap | AMOUNT | MERCHANT', '2026-11-04')).toBeNull();
+    expect(parseWalletTap('Pathfinder tap | $0.00 | Metro', '2026-11-04')).toBeNull();
+  });
+});
+
+describe('combining sources', () => {
+  const receipt = { date: '2026-11-03', description: 'Instacart Costco', amount: 254.81, emailed: true };
+  const statementLine = { date: '2026-11-04', description: 'INSTACART*COSTCO TORONTO', amount: 254.81 };
+  const tap = { date: '2026-11-03', description: 'Instacart', amount: 254.81, tapped: true };
+
+  it('counts a receipt and a tap for the same purchase once, keeping the receipt', () => {
+    const { budget, summary } = importStatement([receipt, tap], null, 0, 'mail');
+    expect(budget.transactions).toHaveLength(1);
+    expect(budget.transactions[0].description).toBe('Instacart Costco');
+    expect(summary.repeats).toBe(1);
+  });
+
+  it('matches a statement line to a receipt already in the budget', () => {
+    const first = importStatement([receipt], null, 0, 'mail').budget;
+    const { budget, summary } = importStatement([statementLine], first, 0, 'statement');
+    expect(budget.transactions).toHaveLength(1);
+    expect(summary.repeats).toBe(1);
+  });
+
+  it('leaves two real purchases as two', () => {
+    const first = importStatement([{ ...tap, description: 'Tim Hortons', amount: 5.25 }], null, 0, 'mail').budget;
+    const lines = [{ date: '2026-11-03', description: 'TIM HORTONS 123', amount: 5.25 }, { date: '2026-11-04', description: 'TIM HORTONS 123', amount: 5.25 }];
+    expect(importStatement(lines, first, 0, 'statement').budget.transactions).toHaveLength(2);
+  });
+
+  it('keeps the same amount a week apart', () => {
+    const first = importStatement([receipt], null, 0, 'mail').budget;
+    expect(importStatement([{ ...statementLine, date: '2026-11-10' }], first, 0, 'statement').budget.transactions).toHaveLength(2);
+  });
+
+  it('marks a tap as coming from the wallet', () => {
+    expect(importStatement([tap], null, 0, 'mail').budget.transactions[0].source).toBe('wallet');
+  });
+});
+
+describe('reading a real inbox politely', () => {
+  const email = (id: string) => ({ internalDate: String(Date.UTC(2026, 10, 2, 12)), snippet: `Order ${id} total $5.00`, payload: { headers: [{ name: 'Subject', value: id }] } });
+  const slowDown = () => new Response(JSON.stringify({ error: { errors: [{ reason: 'rateLimitExceeded' }], message: 'Too fast' } }), { status: 403 });
+
+  async function read(ids: string[], answer: (id: string) => Response) {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => answer(url.split('/messages/')[1].split('?')[0])));
+    const reading = readEmails('token', ids, () => undefined).catch((problem: unknown) => problem);
+    await vi.runAllTimersAsync();
+    const result = await reading;
+    vi.useRealTimers();
+    return result;
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('waits and tries again when Google says to slow down', async () => {
+    let tries = 0;
+    const result = await read(['wait-1'], (id) => (tries++ < 2 ? slowDown() : Response.json(email(id))));
+    expect(result).toMatchObject({ missed: [] });
+    expect(tries).toBe(3);
+  });
+
+  it('keeps every other email when one will not load', async () => {
+    const result = await read(['fine-1', 'stuck', 'fine-2'], (id) => (id === 'stuck' ? slowDown() : Response.json(email(id))));
+    expect(result).toMatchObject({ missed: ['stuck'] });
+    expect((result as { texts: string[] }).texts).toHaveLength(2);
+  });
+
+  it('does not read an email twice when trying again', async () => {
+    let reads = 0;
+    const answer = (id: string) => { reads += 1; return Response.json(email(id)); };
+    await read(['once'], answer);
+    await read(['once'], answer);
+    expect(reads).toBe(1);
+  });
+
+  it('says so when nothing at all could be read', async () => {
+    const result = await read(['none-1', 'none-2'], slowDown);
+    expect(result).toBeInstanceOf(Error);
+  });
+
+  it('gives up straight away on something waiting will not fix', async () => {
+    let tries = 0;
+    await read(['denied'], () => { tries += 1; return new Response(JSON.stringify({ error: { errors: [{ reason: 'insufficientPermissions' }] } }), { status: 403 }); });
+    expect(tries).toBe(1);
   });
 });
